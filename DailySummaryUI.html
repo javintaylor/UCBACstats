@@ -1,0 +1,160 @@
+<style>
+/* Home's editorial section. Both collapsed panels share a grid cell so switching
+   tabs reserves the taller preview; expanding adds content in normal flow. */
+.daily-summary{margin:24px 0 20px;padding:22px 24px;background:var(--card);border:1px solid var(--rule);border-top:2px solid var(--ink);border-radius:6px;min-width:0}
+/* A first-visit invitation floats above Home without occupying layout space. */
+.member-invite{box-sizing:border-box;position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 32px));max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);padding:24px;border:0;border-radius:14px;background:var(--card);color:var(--ink);box-shadow:0 18px 54px rgba(7,9,19,.32);overflow:auto;overscroll-behavior:contain;font:16px/1.6 var(--sans)}
+.member-invite::backdrop{background:rgba(7,9,19,.55)}
+.member-invite-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+.member-invite h2{display:block;flex:1;min-width:0;margin:0;padding:0;border:0;font:730 27px/1.2 var(--sans);letter-spacing:-.025em;text-wrap:balance}
+.member-invite h2::after{content:none}
+.member-invite .member-invite-close{display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;min-height:44px;margin:-10px -10px 0 0;padding:0;border:0;border-radius:8px;background:transparent;color:var(--ink2);cursor:pointer}
+.member-invite-close svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.member-invite p{margin:0 0 20px;color:var(--ink2);font:400 16px/1.6 var(--sans)}
+.member-invite-actions{display:flex;gap:10px;flex-wrap:wrap}
+.member-invite-actions a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border:1px solid var(--rule);border-radius:8px;color:var(--accent);font:650 15px/1.4 var(--sans);text-decoration:none}
+.member-invite-actions .join{background:var(--accent);color:var(--accentInk);border-color:var(--accent)}
+.member-invite :is(a,button):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.member-invite :is(a,button):active{filter:brightness(.9)}
+@media(hover:hover){.member-invite-close:hover{background:var(--sunk)}}
+@media(max-width:480px){.member-invite{padding:22px 20px}.member-invite h2{font-size:25px}.member-invite-actions{display:grid;grid-template-columns:1fr}.member-invite-actions a{width:100%}}
+.daily-summary-header{display:flex;align-items:flex-start;margin-bottom:19px}
+.daily-summary-tabs{display:flex;gap:4px;border-bottom:1px solid var(--rule);flex-shrink:0}
+.daily-summary-tabs button{appearance:none;min-height:44px;padding:8px 16px;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:3px 3px 0 0;background:transparent;color:var(--ink2);font:650 14px/1.3 var(--sans);cursor:pointer}
+.daily-summary-tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);background:var(--accentSoft)}
+.daily-summary-tabs button:active,.daily-summary-more:active{background:var(--sunk)}
+.daily-summary-panels{display:grid;min-width:0}
+.daily-summary-panel{grid-area:1/1;min-width:0;max-width:72ch;display:flex;flex-direction:column;align-self:stretch}
+.daily-summary-panel[aria-hidden="true"]{visibility:hidden;pointer-events:none}
+.daily-summary-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 12px;margin-bottom:12px}
+.daily-summary h2{font:730 clamp(21px,2.4vw,29px)/1.23 var(--sans);letter-spacing:-.025em;text-wrap:balance;margin:0;color:var(--ink)}
+.daily-summary-ai{color:var(--ink2);font:400 12px/1.5 var(--sans);white-space:nowrap}
+.daily-summary p.daily-summary-paragraph{margin:0 0 12px;font:400 16px/1.7 var(--sans);color:var(--ink2);overflow-wrap:anywhere}
+.daily-summary-paragraph a{color:var(--accent);font-weight:620;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.daily-summary-more{display:inline-flex;align-items:center;align-self:flex-start;flex-shrink:0;gap:8px;min-height:44px;margin-top:auto;padding:8px 0;border:0;background:transparent;color:var(--accent);font:650 14px/1.3 var(--sans);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.daily-summary-more svg{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.7}
+.daily-summary-more[aria-expanded="true"] svg{transform:rotate(180deg)}
+.daily-summary-extra[hidden]{display:none!important}
+.daily-summary :is(button,a,[role="tabpanel"]):focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:3px}
+.daily-summary ::selection{background:var(--accentSoft);color:var(--ink)}
+.daily-summary-skeleton .skeleton{display:block;border-radius:3px}
+.daily-summary-skeleton .daily-summary-panels{min-height:190px}
+.daily-summary-sk-tabs{height:44px;width:175px}
+.daily-summary-sk-title{height:29px;width:min(500px,90%)}
+.daily-summary-sk-ai{height:14px;width:76px}
+.daily-summary-sk-line{height:15px;margin-bottom:12px;width:95%}
+.daily-summary-sk-line:last-of-type{width:68%}
+.daily-summary-sk-button{height:17px;width:142px;margin-top:25px}
+@media(hover:hover){.daily-summary-tabs button:hover{background:var(--sunk)}.daily-summary-paragraph a:hover,.daily-summary-more:hover{color:var(--ink);text-decoration-thickness:2px}}
+@media(max-width:600px){.daily-summary{margin:20px 0;padding:18px 15px}.daily-summary-header{margin-bottom:17px}.daily-summary-tabs{width:100%}.daily-summary-tabs button{flex:1}.daily-summary h2{font-size:23px}.daily-summary p.daily-summary-paragraph{font-size:16px;line-height:1.65}.daily-summary-skeleton .daily-summary-panels{min-height:275px}.daily-summary-sk-tabs{width:100%}.daily-summary-sk-line{margin-bottom:13px}}
+</style>
+<script>
+/* Only typed, validated segments are rendered. Model output never becomes HTML. */
+var UcbacDailySummary=(function(){
+  'use strict';
+  function escape(text){return String(text==null?'':text).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function segments(parts){
+    if(!Array.isArray(parts)||parts.length>60)throw new Error('Invalid paragraph');
+    return parts.map(function(p){
+      if(!p||typeof p.text!=='string'||p.text.length>1200)throw new Error('Invalid text');
+      var text=escape(p.text);
+      if(!p.type)return text;
+      if(['player','team','coach'].indexOf(p.type)<0||!/^[A-Za-z0-9_-]{1,100}$/.test(p.id))throw new Error('Invalid profile');
+      return '<a href="#/'+p.type+'/'+encodeURIComponent(p.id)+'">'+text+'</a>';
+    }).join('');
+  }
+  function markup(data){
+    if(!data||data.schema!==1||!/^\d{4}-\d{2}-\d{2}$/.test(data.day||''))return '';
+    try{
+      var editions=data.editions,body='';
+      ['players','teams'].forEach(function(kind,i){
+        var e=editions[kind],name=kind==='players'?'Players':'Teams';
+        if(!e||typeof e.headline!=='string'||e.headline.length>120||!Array.isArray(e.paragraphs)||e.paragraphs.length!==3)throw new Error('Invalid edition');
+        var paras=e.paragraphs.map(function(p){return '<p class="daily-summary-paragraph">'+segments(p)+'</p>';});
+        body+='<article class="daily-summary-panel" id="daily-panel-'+kind+'" role="tabpanel" aria-labelledby="daily-tab-'+kind+'" tabindex="'+(i?-1:0)+'"'+(i?' aria-hidden="true" inert':'')+'>'+
+          '<div class="daily-summary-title"><h2>'+escape(e.headline)+'</h2><span class="daily-summary-ai">AI generated</span></div>'+paras[0]+
+          '<div class="daily-summary-extra" id="daily-extra-'+kind+'" hidden>'+paras[1]+paras[2]+'</div>'+
+          '<button class="daily-summary-more" type="button" data-daily-more="'+kind+'" aria-expanded="false" aria-controls="daily-extra-'+kind+'" aria-label="Read full '+name.toLowerCase()+' summary">'+
+          '<span>Read full summary</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button></article>';
+      });
+      return '<section class="daily-summary" aria-label="Daily summaries" id="daily-summary">'+
+        '<div class="daily-summary-header">'+
+        '<div class="daily-summary-tabs" role="tablist" aria-label="Daily summary editions">'+
+        '<button type="button" role="tab" id="daily-tab-players" aria-selected="true" aria-controls="daily-panel-players" data-daily-tab="players">Players</button>'+
+        '<button type="button" role="tab" id="daily-tab-teams" aria-selected="false" aria-controls="daily-panel-teams" data-daily-tab="teams" tabindex="-1">Teams</button></div></div>'+
+        '<div class="daily-summary-panels">'+body+'</div></section>';
+    }catch(error){return '';}
+  }
+  function collapse(section,kind){
+    var button=section.querySelector('[data-daily-more="'+kind+'"]');
+    section.querySelector('#daily-extra-'+kind).hidden=true;
+    button.setAttribute('aria-expanded','false');button.querySelector('span').textContent='Read full summary';
+    button.setAttribute('aria-label','Read full '+kind+' summary');
+  }
+  function select(section,kind,focus){
+    ['players','teams'].forEach(function(k){
+      var selected=k===kind,tab=section.querySelector('[data-daily-tab="'+k+'"]'),panel=section.querySelector('#daily-panel-'+k);
+      collapse(section,k);tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;
+      panel.tabIndex=selected?0:-1;
+      if(selected){panel.removeAttribute('aria-hidden');panel.removeAttribute('inert');}else{panel.setAttribute('aria-hidden','true');panel.setAttribute('inert','');}
+      if(selected&&focus)tab.focus({preventScroll:true});
+    });
+  }
+  document.addEventListener('click',function(event){
+    var button=event.target.closest('button[data-daily-tab],button[data-daily-more]');if(!button)return;
+    var section=button.closest('.daily-summary');if(!section)return;
+    if(button.dataset.dailyTab){if(button.getAttribute('aria-selected')!=='true')select(section,button.dataset.dailyTab,false);return;}
+    var kind=button.dataset.dailyMore,expanded=button.getAttribute('aria-expanded')!=='true';
+    section.querySelector('#daily-extra-'+kind).hidden=!expanded;
+    button.setAttribute('aria-expanded',String(expanded));button.querySelector('span').textContent=expanded?'Show less':'Read full summary';
+    button.setAttribute('aria-label',(expanded?'Collapse ':'Read full ')+kind+' summary');
+  });
+  document.addEventListener('keydown',function(event){
+    var tab=event.target.closest('[data-daily-tab]');if(!tab||event.altKey||event.ctrlKey||event.metaKey)return;
+    var kind;
+    if(event.key==='Home')kind='players';else if(event.key==='End')kind='teams';
+    else if(event.key==='ArrowLeft'||event.key==='ArrowRight')kind=tab.dataset.dailyTab==='players'?'teams':'players';else return;
+    event.preventDefault();select(tab.closest('.daily-summary'),kind,true);
+  });
+  function skeleton(){return '<div class="daily-summary daily-summary-skeleton" aria-hidden="true"><div class="daily-summary-header"><i class="skeleton daily-summary-sk-tabs"></i></div><div class="daily-summary-panels"><div class="daily-summary-panel"><div class="daily-summary-title"><i class="skeleton daily-summary-sk-title"></i><i class="skeleton daily-summary-sk-ai"></i></div><i class="skeleton daily-summary-sk-line"></i><i class="skeleton daily-summary-sk-line"></i><i class="skeleton daily-summary-sk-line"></i><i class="skeleton daily-summary-sk-line"></i><i class="skeleton daily-summary-sk-button"></i></div></div></div>';}
+  // The host supplies escaped links to the existing account portal.
+  var inviteDialog=null,inviteSeen=false,inviteKey='ucbac_member_invite_seen_v1';
+  function closeInvite(){if(inviteDialog){var d=inviteDialog;inviteDialog=null;d.close();}}
+  function showInvite(signupLink,loginLink){
+    if(inviteDialog||inviteSeen||(!signupLink&&!loginLink)||document.hidden)return false;
+    try{if(localStorage.getItem(inviteKey)==='1')return false;}catch(e){}
+    if(document.querySelector('dialog[open],#mdl'))return false;
+    var d=document.createElement('dialog');if(typeof d.showModal!=='function')return false;
+    d.id='member-invite';d.className='member-invite';d.setAttribute('aria-labelledby','member-invite-title');d.setAttribute('aria-describedby','member-invite-description');
+    d.innerHTML='<div class="member-invite-head"><h2 id="member-invite-title">Go beyond the scoreboard</h2>'+
+      '<button type="button" class="member-invite-close" data-invite-close aria-label="Close account invitation" autofocus><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>'+
+      '<p id="member-invite-description">Create a free fan, player or coach account. Members 18 and older can ask Blitz AI and explore daily Players and Teams stories.</p>'+
+      '<div class="member-invite-actions">'+signupLink+loginLink+'</div>';
+    var opener=document.activeElement,oldOverflow=document.body.style.overflow;
+    d.addEventListener('close',function(){
+      if(inviteDialog===d)inviteDialog=null;d.remove();document.body.style.overflow=oldOverflow;
+      if(opener&&opener.isConnected&&opener.focus)opener.focus({preventScroll:true});
+    },{once:true});
+    d.addEventListener('click',function(e){if(e.target.closest('[data-invite-close]'))closeInvite();});
+    d.addEventListener('keydown',function(e){
+      if(e.key!=='Tab')return;
+      var fields=d.querySelectorAll('a[href],button:not([disabled])'),first=fields[0],last=fields[fields.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+    });
+    // Only a press and release on the backdrop dismiss; dragging from content does not.
+    var backdropDown=false;
+    function outside(e){var b=d.getBoundingClientRect();return e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom;}
+    d.addEventListener('pointerdown',function(e){backdropDown=e.target===d&&outside(e);});
+    d.addEventListener('click',function(e){if(backdropDown&&e.target===d&&outside(e))closeInvite();backdropDown=false;});
+    document.body.appendChild(d);
+    try{d.showModal();}catch(e){d.remove();return false;}
+    inviteDialog=d;inviteSeen=true;document.body.style.overflow='hidden';
+    try{localStorage.setItem(inviteKey,'1');}catch(e){}
+    return true;
+  }
+  window.addEventListener('hashchange',closeInvite);
+  window.addEventListener('pagehide',closeInvite);
+  return {markup:markup,skeleton:skeleton,showInvite:showInvite,closeInvite:closeInvite};
+})();
+</script>

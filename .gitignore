@@ -1,0 +1,9 @@
+.clasp.json
+.clasprc.json
+.env*
+private-capture/
+node_modules/
+*.xlsx
+*.xlsm
+*.csv
+*.tsv

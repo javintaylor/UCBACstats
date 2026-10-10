@@ -1,0 +1,148 @@
+<style>
+.policy-dialog{box-sizing:border-box;margin:auto;width:min(560px,calc(100vw - 28px));max-height:calc(100dvh - 32px);padding:24px;border:1px solid #ccd5e2;border-radius:14px;background:#fff;color:#182333;box-shadow:0 18px 64px #14203440;font:16px/1.5 system-ui,sans-serif;overflow:auto}
+.policy-dialog::backdrop{background:#14203488}
+.policy-dialog h2{display:block;padding:0;border:0;font-size:24px;line-height:1.2;margin:0 0 12px}.policy-dialog h2::after{content:none}.policy-dialog p{margin:10px 0}
+.policy-dialog label{display:block;margin:12px 0 6px;font-weight:600}
+.policy-dialog input[type=date]{display:block;box-sizing:border-box;width:100%;min-height:48px;padding:12px;border:1px solid #8998ac;border-radius:8px;font:inherit;color:inherit;background:#fff}
+.policy-dialog button,.policy-checks button{font:inherit}.policy-link{border:0;background:none;color:#1556bb;text-decoration:underline;padding:0;cursor:pointer;font:inherit}
+.policy-documents{display:grid;gap:8px;margin:16px 0}
+.policy-doc-link{display:flex;align-items:center;justify-content:space-between;gap:16px;box-sizing:border-box;min-height:56px;padding:12px 14px;border:1px solid #c6ceda;border-radius:8px;background:#f8fafc;color:#1556bb;font:600 16px/1.4 system-ui,sans-serif;text-decoration:none;overflow-wrap:anywhere}
+.policy-doc-link:hover,.policy-doc-link:active{background:#edf3fc;border-color:#1556bb}
+.policy-doc-state{flex:none;color:#536173;font-size:13px;font-weight:500}.policy-doc-link[data-reviewed] .policy-doc-state{color:#216343}
+.policy-progress,.policy-hint,.policy-consent-copy{font-size:14px;line-height:1.5}.policy-progress{font-weight:600}
+.policy-checks{margin-top:16px}.policy-checks label{display:flex;align-items:flex-start;gap:10px;min-height:48px;margin:0;font:15px/1.5 system-ui,sans-serif;text-align:left;font-weight:400}
+.policy-checks input[type=checkbox]{flex:none;appearance:auto;width:20px;height:20px;margin:2px 0 0;accent-color:#185acb}.policy-checks input:disabled+span{color:#536173}
+.policy-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:18px}.policy-actions button{min-height:48px;padding:10px 16px;border:1px solid #a9b5c5;border-radius:8px;background:white;cursor:pointer;color:#182333}.policy-actions .policy-primary{min-width:164px;white-space:nowrap;background:#185acb;color:#fff;border-color:#185acb}.policy-actions button:disabled{opacity:.55;cursor:not-allowed}.policy-actions button[aria-busy=true]{cursor:wait}
+.policy-error{color:#a82424;min-height:1.5em}.policy-dialog :focus-visible,.policy-documents :focus-visible,.policy-checks :focus-visible{outline:3px solid #397ddd;outline-offset:3px}.policy-footer{display:flex;justify-content:center;flex-wrap:wrap;gap:16px;font:13px/1.5 system-ui;padding:18px}
+@media(max-width:480px){.policy-dialog{padding:20px}.policy-actions button{flex:0 0 auto}.policy-actions .policy-primary{flex:1}.policy-dialog h2{font-size:22px}}
+@media(prefers-color-scheme:dark){.policy-dialog{background:#141622;color:#e9ebf4;border-color:#3b4255}.policy-dialog input[type=date]{background:#10121d;border-color:#8998ac}.policy-doc-link{background:#10121d;color:#a5b8ff;border-color:#4a5268}.policy-doc-link:hover,.policy-doc-link:active{background:#1b2440;border-color:#a5b8ff}.policy-doc-state,.policy-checks input:disabled+span{color:#bdc5d6}.policy-doc-link[data-reviewed] .policy-doc-state{color:#84d9ae}.policy-actions button{background:#141622;color:#e9ebf4;border-color:#8998ac}.policy-actions .policy-primary{min-width:164px;white-space:nowrap;background:#185acb;color:#fff;border-color:#75aaff}.policy-error{color:#ffaaa5}.policy-link{color:#a5b8ff}}
+</style>
+<script>
+/* Shared by the public shell and the portal. Policy text always comes from
+   the same server bundle that validates the acknowledgment. No prechecked boxes. */
+window.UcbacPolicies=(function(){
+  var config=null,bundle=null,loading=null,dialog=null,epoch=0,reviewId=0;
+  var reviewStates=new WeakMap();
+  function escape(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function get(){
+    if(bundle)return Promise.resolve(bundle);
+    if(!loading)loading=config.call('svcPolicies',[]).then(function(r){bundle=r;loading=null;return r;},function(e){loading=null;throw e;});
+    return loading;
+  }
+  /* Native links must perform their own navigation. A browser can open a tab
+     without giving window.open() a usable WindowProxy, especially in a sandbox.
+     Record the link activation, not that unreliable return value. Review methods
+     remain browser-reported interaction; they are never proof of reading. */
+  var savedReview=null,REVIEW_STORAGE='ucbac_policy_review_v2';
+  function documents(b){return '<p class="policy-hint">Open each policy below, then return here to continue. Links open in a new tab.</p><div class="policy-documents">'+b.documents.map(function(d){
+    var base=String(config.baseUrl()||'').split('?')[0],url=base+'?page=policy&doc='+encodeURIComponent(d.kind);
+    return '<a class="policy-doc-link" href="'+escape(url)+'" target="_blank" rel="noopener" data-open-policy="'+escape(d.kind)+'" aria-label="Open '+escape(d.title)+' (opens in a new tab)"><span>'+escape(d.title)+'</span><span class="policy-doc-state" aria-hidden="true">Open</span></a>';
+  }).join('')+'</div><p class="policy-progress" data-policy-progress role="status" aria-live="polite">0 of 3 policies opened.</p>';}
+  function bindReview(scope,owner){
+    owner=String(owner||'registration').trim().toLowerCase();
+    var state={},id=++reviewId,bundleId=bundle.bundleId;
+    try{var stored=JSON.parse(sessionStorage.getItem(REVIEW_STORAGE)||'null');if(stored)savedReview=stored;}catch(ignore){}
+    if(savedReview&&savedReview.owner===owner&&savedReview.bundleId===bundleId&&Date.now()-savedReview.at>=0&&Date.now()-savedReview.at<86400000){
+      ['terms','privacy','data'].forEach(function(k){if(savedReview.methods&&['opened','scrolled'].indexOf(savedReview.methods[k])>=0)state[k]=savedReview.methods[k];});
+    }
+    reviewStates.set(scope,state);
+    var status=scope.querySelector('[data-policy-progress]'),consent=scope.querySelector('[data-policy-consent]'),submit=scope.querySelector('[data-policy-agree]');
+    status.id='policy-progress-'+id;
+    if(consent)consent.setAttribute('aria-describedby',status.id);
+    if(submit)submit.setAttribute('aria-describedby',status.id);
+    function refresh(){
+      var count=0;scope.querySelectorAll('[data-open-policy]').forEach(function(link){
+        var opened=!!state[link.dataset.openPolicy];if(opened){count++;link.setAttribute('data-reviewed','true');}else link.removeAttribute('data-reviewed');
+        link.querySelector('.policy-doc-state').textContent=opened?'Opened':'Open';
+        link.setAttribute('aria-label','Open '+link.querySelector('span').textContent+' (opens in a new tab)'+(opened?' — already opened':''));
+      });
+      status.textContent=count===3?'All 3 policies opened. You can now acknowledge them.':count+' of 3 policies opened. Open the remaining '+(3-count)+' to continue.';
+      if(consent)consent.disabled=count!==3;
+      if(submit)submit.disabled=count!==3||submit.getAttribute('aria-busy')==='true';
+    }
+    function opened(ev){
+      if(ev.type==='auxclick'&&ev.button!==1)return;
+      state[this.dataset.openPolicy]='opened';
+      savedReview={owner:owner,bundleId:bundleId,at:Date.now(),methods:Object.assign({},state)};
+      try{sessionStorage.setItem(REVIEW_STORAGE,JSON.stringify(savedReview));}catch(ignore){}
+      refresh();
+    }
+    scope.querySelectorAll('[data-open-policy]').forEach(function(link){link.addEventListener('click',opened);link.addEventListener('auxclick',opened);});
+    refresh();
+  }
+  function clearReview(){savedReview=null;try{sessionStorage.removeItem(REVIEW_STORAGE);}catch(ignore){}}
+  function checks(){return '<div class="policy-checks"><label><input type="checkbox" data-policy-consent required disabled><span>I agree to the Terms of Use and acknowledge the Privacy Policy and Data and Publication Policy.</span></label></div>';}
+  function payload(scope,agreed){
+    if(!bundle||!scope||scope.getAttribute('data-policy-bundle')!==bundle.bundleId)throw new Error('Wait for the policies to load, then open them.');
+    var state=reviewStates.get(scope)||{},out={bundleId:bundle.bundleId,review:{}};
+    ['terms','privacy','data'].forEach(function(k){if(!state[k])throw new Error('Open all three policy links before continuing. Your progress appears below the links.');out.review[k]=state[k];});
+    var consent=scope.querySelector('[data-policy-consent]');
+    if(agreed!==true&&!(consent&&consent.checked))throw new Error('Check the box to agree to the terms and acknowledge the policies.');
+    out.terms=true;out.privacy=true;out.data=true;
+    return out;
+  }
+  function close(){if(dialog){dialog.close();dialog.remove();dialog=null;}}
+  function reset(){epoch++;close();}
+  function make(title){
+    close();var d=document.createElement('dialog');d.className='policy-dialog';d.setAttribute('aria-labelledby','policy-title');
+    d.innerHTML='<h2 id="policy-title">'+escape(title)+'</h2>';document.body.appendChild(d);dialog=d;d.showModal();return d;
+  }
+  function signup(el){
+    el.innerHTML='<p role="status">Loading terms and policies…</p>';
+    get().then(function(b){if(!el.isConnected)return;el.setAttribute('data-policy-bundle',b.bundleId);
+      el.innerHTML='<p>Review the terms and policies before creating your account.</p>'+documents(b)+checks();
+      bindReview(el);
+    }).catch(function(){if(!el.isConnected)return;el.innerHTML='<p role="alert">The policies could not load.</p><button type="button" class="policy-link">Try again</button>';el.querySelector('button').onclick=function(){signup(el);};});
+  }
+  function requireUpdate(auth){
+    if(!auth||!auth.accountUpdateRequired)return false;
+    if(dialog&&dialog.dataset.required==='yes')return true;
+    var needsDob=auth.accountUpdateBirthDateRequired!==false;
+    var quarterly=auth.accountUpdateReason==='quarterly';
+    var title=needsDob?'Update your account':quarterly?'Quarterly policy review':'Terms and policies';
+    var intro=needsDob?'Please enter your date of birth and review our terms and policies to continue using your account.':quarterly?'Every three months, we ask you to review and acknowledge our terms and policies to continue using your account.':'Please review and acknowledge our updated terms and policies to continue using your account.';
+    var token=config.token(),version=epoch,d=make(title);d.dataset.required='yes';d.setAttribute('closedby','none');
+    d.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();e.stopPropagation();}},true);
+    d.addEventListener('cancel',function(e){e.preventDefault();});
+    d.innerHTML+='<p>'+escape(intro)+'</p><div data-policy-content><p role="status">Loading terms and policies…</p></div>';
+    function signOut(){reset();config.signOut();}
+    function current(){return d===dialog&&token===config.token()&&version===epoch;}
+    function load(){get().then(function(b){
+      if(!current())return;
+      var box=d.querySelector('[data-policy-content]');
+      var birthField=needsDob?'<label for="policy-dob">Date of birth</label><input id="policy-dob" type="date" autocomplete="bday" required><p id="policy-dob-echo"></p><p>Your full birth date is kept private. See the Privacy Policy for how it is used.</p>':'';
+      box.innerHTML='<form id="policy-update-form">'+birthField+documents(b)+'<p class="policy-consent-copy">By choosing Agree &amp; Continue, you agree to the Terms of Use and acknowledge the Privacy Policy and Data and Publication Policy.</p><p class="policy-error" role="alert" id="policy-error"></p><div class="policy-actions"><button type="button" data-policy-signout>Sign Out</button><button type="submit" class="policy-primary" data-policy-agree disabled>Agree &amp; Continue</button></div></form>';
+      var form=box.querySelector('form');form.setAttribute('data-policy-bundle',b.bundleId);bindReview(form,auth.email);
+      form.querySelector('[data-policy-signout]').onclick=signOut;
+      var saving=false;
+      form.onsubmit=function(ev){ev.preventDefault();if(saving||!form.reportValidity())return;
+        var error=d.querySelector('#policy-error'),button=form.querySelector('[type=submit]'),p;
+        try{p={policies:payload(form,true)};if(needsDob)p.dob=form.querySelector('#policy-dob').value;}catch(e){error.textContent=e.message;return;}
+        saving=true;button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Saving…';error.textContent='';
+        config.call('svcCompleteAccountUpdate',[p]).then(function(a){if(!current())return;clearReview();close();config.accepted(a);}).catch(function(e){
+          if(!current())return;saving=false;button.disabled=false;button.removeAttribute('aria-busy');button.textContent='Agree & Continue';error.textContent=String(e&&e.message||e);
+        });
+      };
+      if(needsDob){
+        /* The same seeded-day trap as the sign-up form: a phone's date picker
+           opens on a day the person never chose. Here it is worse, because a
+           wrong day does not just store a wrong date - it stops matching the
+           one on file and locks the account out with nothing to act on. So the
+           date is said back in words before it is submitted. */
+        var dobEl=form.querySelector('#policy-dob'), dobEcho=form.querySelector('#policy-dob-echo');
+        var MON=['January','February','March','April','May','June','July',
+                 'August','September','October','November','December'];
+        var say=function(){
+          var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dobEl.value||'').trim());
+          if(!m||+m[2]<1||+m[2]>12){dobEcho.textContent='Check the day as well as the month and year.';return;}
+          dobEcho.innerHTML='You entered <b>'+(+m[3])+' '+MON[+m[2]-1]+' '+m[1]+'</b>. Please check the day.';
+        };
+        dobEl.addEventListener('input',say); dobEl.addEventListener('change',say); say();
+      }
+      form.querySelector(needsDob?'#policy-dob':'[data-open-policy]').focus();
+    }).catch(function(){if(!current())return;var box=d.querySelector('[data-policy-content]');box.innerHTML='<p role="alert">The policies could not load. Your account has not been updated.</p><div class="policy-actions"><button type="button" data-policy-signout>Sign Out</button><button type="button" data-policy-retry>Try Again</button></div>';box.querySelector('[data-policy-retry]').onclick=load;box.querySelector('[data-policy-signout]').onclick=signOut;});}
+    load();return true;
+  }
+  return {init:function(c){config=c;},get:get,signup:signup,payload:payload,requireUpdate:requireUpdate,reset:reset};
+})();
+</script>
