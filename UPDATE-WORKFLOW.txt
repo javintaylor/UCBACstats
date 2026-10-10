@@ -1,0 +1,20 @@
+UCBACstats source update workflow — actual GitHub layout
+
+Local verified checkout: /Users/javintaylor/Documents/Codex/2026-10-10/task-2/checkout
+GitHub: https://github.com/javintaylor/UCBACstats
+
+The repository root contains editor .js/.html files and appsscript.json, not a src directory. source-mirror.zip preserves src/, snapshots/v221/, and tools/. Keep that distinction when following README step 6: copy reviewed staging/src files into the checkout ROOT, rebuild the complete ZIP, and regenerate SOURCE-SNAPSHOT.txt. Keep manifest.json alongside root files. Remove obsolete source files only after reviewing the source inventory and any concurrent remote work.
+
+Existing source access: clasp read-only clone worked with existing authorization. Existing GitHub connector writes returned 403; existing SSH key access was unavailable. No credentials or grants were added. The verified write route is GitHub's signed-in browser Upload files page.
+
+Repeat after each approved Apps Script change:
+1. Fetch/pull remote main into the checkout and preserve any local/concurrent work.
+2. In NEW private directories outside the checkout, use existing clasp authorization to clone current editor and the verified live deployment version. Do not use the backup-bound script as a sandbox.
+3. Run prepare_snapshot.py into NEW staging directories. Manually review all staged source for embedded contacts, player/account datasets, DOBs, IDs, secrets, credential URLs and operational config. The script does not replace human review; new source patterns may need new sanitization.
+4. Verify source count, SHA-256 manifest hashes and node --check results. Update provenance with capture date, live version, editor-only files and changed files.
+5. Copy reviewed source to repository root; package complete version directories and tooling into source-mirror.zip. Regenerate SOURCE-SNAPSHOT.txt with filename delimiters and the sanitized editor source + manifest.
+6. Review the full diff locally. If authorized Git CLI access works, commit/push normally. Otherwise use the already signed-in GitHub Add file > Upload files UI. Upload only reviewed source + manifests + documentation + ZIP + TXT, not private capture directories or .clasp.json. Review replacements and commit. Existing credential limits are not permission to add persistent credentials.
+7. Fetch remote HEAD again and compare every root file hash to the manifest; inspect the deployed-version manifest and hashes inside the downloaded ZIP. Record exact commit SHA. Do not force-push.
+8. Deliver the source TXT and commit link only to Claude UCBACstats (DOT), https://claude.ai/code/session_01RTrzxTHkujTGube8cEy27C. Ask for a read-only code fact and manifest count to verify actual source access. Do not authorize production, database or account edits.
+
+This is an on-demand repeatable workflow, not a configured background sync. No Apps Script push, version creation or deployment is part of this workflow.
