@@ -15,6 +15,6 @@ Repeat after each approved Apps Script change:
 5. Copy reviewed source to repository root; package complete version directories and tooling into source-mirror.zip. Regenerate SOURCE-SNAPSHOT.txt with filename delimiters and the sanitized editor source + manifest.
 6. Review the full diff locally. If authorized Git CLI access works, commit/push normally. Otherwise use the already signed-in GitHub Add file > Upload files UI. Upload only reviewed source + manifests + documentation + ZIP + TXT, not private capture directories or .clasp.json. Review replacements and commit. Existing credential limits are not permission to add persistent credentials.
 7. Fetch remote HEAD again and compare every root file hash to the manifest; inspect the deployed-version manifest and hashes inside the downloaded ZIP. Record exact commit SHA. Do not force-push.
-8. Deliver the source TXT and commit link only to Claude UCBACstats (DOT), https://claude.ai/code/session_01RTrzxTHkujTGube8cEy27C. Ask for a read-only code fact and manifest count to verify actual source access. Do not authorize production, database or account edits.
+8. Deliver the source TXT and commit link only to Claude UCBACstats Canonical (DOT), https://claude.ai/code/session_01HDDkBSXaMp2y2CWGnmcA1u. Ask for a read-only code fact and manifest count to verify actual source access. Do not authorize production, database or account edits.
 
 This is an on-demand repeatable workflow, not a configured background sync. No Apps Script push, version creation or deployment is part of this workflow.
