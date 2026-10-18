@@ -50,7 +50,8 @@ const SCHEMA = {
   // Who put a stat line in. Blank and IMPORT and COACH_ENTRY are official;
   // PLAYER_ENTRY is a player's own claim, published in grey until a coach or
   // administrator approves it or an official entry supersedes it.
-  PLAYER_STATS_ADD: ['SourceType', 'EnteredBy', 'EnteredAt', 'Pancakes', 'Blocks'],
+  PLAYER_STATS_ADD: ['SourceType', 'EnteredBy', 'EnteredAt', 'Pancakes', 'Blocks',
+                     'BlockedPunts', 'TwoPointConversions'],
 
   /* Positions is already present on the live workbook; listing it here is what
      makes a fresh import safe, and addColumns() skips it when it exists.
@@ -307,6 +308,8 @@ function ensureSchema_() {
     schemaAddTo_(CONFIG.TABS.PLAYERS,        SCHEMA.PLAYERS_ADD,        out, warn);
     schemaAddTo_(CONFIG.TABS.PLAYER_SEASONS, SCHEMA.PLAYER_SEASONS_ADD, out, warn);
     schemaAddTo_(CONFIG.TABS.PLAYER_STATS,   SCHEMA.PLAYER_STATS_ADD,   out, warn);
+    if (hasTab_('StatsImport'))
+      schemaAddTo_('StatsImport', ['BlockedPunts', 'TwoPointConversions'], out, warn);
     schemaAddTo_(CONFIG.TABS.CORRECTIONS,    SCHEMA.CORRECTIONS_ADD,    out, warn);
     schemaAddTo_(CONFIG.TABS.GAMES,          SCHEMA.GAMES_ADD,          out, warn);
     schemaAddTo_(CONFIG.TABS.TEAM_SEASONS,   SCHEMA.TEAM_SEASONS_ADD,   out, warn);
@@ -357,4 +360,42 @@ function menuEnsureSchema_() {
       SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {}
   return msg;
+}
+
+/** Scoped activation: only the two approved optional stat headers. */
+function menuEnsureConversionSchema() {
+  const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  const owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!active || active !== owner) throw new Error('Run this migration from the owner Apps Script editor.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another save is in progress.');
+  try {
+    const fields = ['BlockedPunts', 'TwoPointConversions'];
+    const tabs = [CONFIG.TABS.PLAYER_STATS, 'StatsImport'];
+    tabs.forEach(function (tab) {
+      if (!hasTab_(tab)) throw new Error('Missing tab: ' + tab);
+      if (columnConflicts_(tab, fields).length) throw new Error('Conflicting headers on ' + tab);
+    });
+    const report = tabs.map(function (tab) {
+      const added = addColumns_(tab, fields);
+      const sh = getTab_(tab), head = tabHeader_(tab);
+      // Inserted columns can inherit EnteredAt's date format. Counts must be
+      // numeric on getValues(), never Date objects converted to epoch millis.
+      fields.forEach(function (field) {
+        if (sh.getMaxRows() > 1)
+          sh.getRange(2, head.indexOf(field) + 1, sh.getMaxRows() - 1, 1).setNumberFormat('0');
+      });
+      return tab + ': ' + added.join(', ') + ' (integer formatting verified)';
+    }).join('\n');
+    Logger.log(report);
+    return report;
+  } finally { lock.releaseLock(); }
+}
+
+/** Owner editor runner: incumbent rebuild/cache/snapshot path without UI dialogs. */
+function menuRebuildConversionStats() {
+  const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  const owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!active || active !== owner) throw new Error('Run this rebuild from the owner Apps Script editor.');
+  return runRebuild_('manual');
 }

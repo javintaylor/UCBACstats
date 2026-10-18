@@ -229,6 +229,8 @@ function svcRegisterFinalize(t, p)      { return withSession_(t, function () { r
 function svcClaimCandidates(t, teamId, name)  { return withSession_(t, function () { return apiClaimCandidates_(teamId, name); }); }
 function svcPendingAccounts(t)                { return withSession_(t, function () { return apiPendingAccounts_(); }); }
 function svcApproveAccount(t, id, ap, note)   { return withSession_(t, function () { return apiApproveAccount_(id, ap, note); }); }
+function svcPrepareAccountClosure(t, target) { return withSession_(t, function () { return apiPrepareAccountClosure_(target); }, {fresh:true}); }
+function svcCloseAccount(t, p) { return withSession_(t, function () { return apiCloseAccount_(p); }, {fresh:true}); }
 
 /* ---- portal: player ---- */
 function svcMyCoachProfile(t)           { return withSession_(t, function () { return apiMyCoachProfile_(); }); }

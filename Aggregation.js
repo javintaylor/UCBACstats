@@ -25,13 +25,15 @@ const SUM_FIELDS = [
   // milestone-game counts. Nobody ENTERS these — computePlayerSeasonStats
   // counts them from the game rows — but they live in this list so career
   // totals and multi-season ranges sum them like any other column.
-  'Rush100G','Rec100G','Pass200G'
+  'Rush100G','Rec100G','Pass200G',
+  // Append optional fields after incumbent derived columns to preserve positions.
+  'BlockedPunts','TwoPointConversions'
 ];
 
 /**
  * A stat line nobody official has confirmed yet: a player's own entry. It
- * publishes grey and sits in the review queue until a coach or an
- * administrator approves it, or a coach writes the line himself. A coach's
+ * publishes immediately in grey with no initial approval task. Verified
+ * imported coverage replaces only the fields it establishes. A coach's
  * upload (FILE_IMPORT) is NOT provisional - it is the coach's word, official
  * as it lands, and he uploads again to change it. Every "is this
  * provisional?" test goes through here so nothing can drift.

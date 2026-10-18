@@ -20,8 +20,10 @@ def remove_array(text,key):
    depth-=1
    if depth==0:return text[:start]+'[] /* private dataset removed */'+text[i+1:]
  raise ValueError(key)
+EXCLUDED={'PlayerMerge20261015.js','PlayerMergeSecond20261015.js','PlayerMergeThird20261015.js','MergeActivation20261015.js','BohemiaReview20261017.js'}
 manifest=[]
 for f in sorted(src.iterdir()):
+ if f.name in EXCLUDED:continue
  if f.suffix not in ('.js','.html','.json') or f.name.startswith('.'):continue
  t=f.read_text()
  if f.name=='CorrectionMail.js':t=remove_array(t,'HEAD_CONTACTS')
@@ -32,7 +34,7 @@ for f in sorted(src.iterdir()):
  # Historical record commentary is unnecessary for understanding executable logic.
  if f.suffix=='.js':t=re.sub(r'/\*[\s\S]*?\*/',lambda m:'/* historical record comment removed */' if re.search(r'PLY-\d|ACC-\d',m[0]) else m[0],t)
  t=re.sub(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+','contact@example.invalid',t)
- t=re.sub(r'([\'\"])1[A-Za-z0-9_-]{29,}\1',lambda m:m[1]+'CONFIGURE_PRIVATE_RESOURCE_ID'+m[1],t)
+ t=re.sub(r'([\'\"])1[A-Za-z0-9_-]{29,}\1',lambda m:m[0] if len(m[0][1:-1])==64 and re.fullmatch(r'[0-9a-f]{64}',m[0][1:-1],re.I) else m[1]+'CONFIGURE_PRIVATE_RESOURCE_ID'+m[1],t)
  t=re.sub(r'PLY-[0-9][0-9-]*','PLY-EXAMPLE',t)
  t=re.sub(r'AKfy[A-Za-z0-9_-]{25,}','CONFIGURE_DEPLOYMENT_ID',t)
  if re.search(r'AIza[\w-]{20,}|gh[pousr]_[\w]{20,}|-----BEGIN .*PRIVATE KEY',t):raise ValueError('Potential embedded credential: '+f.name)

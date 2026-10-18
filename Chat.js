@@ -141,14 +141,10 @@ const CHAT = {
   LOG_DAYS: 90,
   /* what the model never sees: the sign-in and mail machinery, and any
      column that names a person's address, birth date or phone */
-  HIDE_TAB: /^(Sessions|Notifications|LoginCodes|Tokens?|Accounts|AccountCompliance|PolicyAcknowledgments|PolicyDocuments|AuditLog|ChatLog|ChatCards|ShareCards)$/i,
+  HIDE_TAB: /^(Sessions|Notifications|LoginCodes|Tokens?|Accounts|AccountCompliance|AccountIdentityReleases|AccountClosures|PolicyAcknowledgments|PolicyDocuments|AuditLog|ChatLog|ChatCards|ShareCards)$/i,
   HIDE_COL: /e-?mail|birth|\bdob\b|phone|hash|token|secret|password|passcode|useragent|ipaddress/i,
   EMAIL: /[\w.+-]+@[\w-]+(\.[\w-]+)+/g,
-  /* Hiding a COLUMN called "BirthDate" is not enough once something packs one
-     into a cell of a column called something else. Accounts.Note carries the
-     registration as JSON — {"dob":"2009-04-11","coachLast":"..."} — and sailed
-     straight through a rule that only ever read column names. So a birth date
-     is taken out of any VALUE as well, whether it is labelled or bare. */
+  /* historical personal-record commentary omitted */
   DOB_LABELLED: /("?\b(?:dob|birth\w*)\b"?\s*[:=]\s*"?)[0-9]{4}-[0-9]{2}-[0-9]{2}[^",}\s]*/gi,
   DOB_BARE: /\b(?:19|20)\d{2}-\d{2}-\d{2}T[0-9:.]+Z?\b/g
 };
@@ -1854,3 +1850,4 @@ function chatListModels_() {
   Logger.log(all.length ? all.join('\n') : 'No models returned. Check GEMINI_API_KEY.');
   return all;
 }
+

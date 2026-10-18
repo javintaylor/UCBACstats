@@ -126,7 +126,7 @@ function resolveStatsRun_(apply) {
   const byExact = {}, byFL = {}, byIL = {};
   const nameOf = {};                       // pid -> DisplayName, for the report
   function add(map, key, pid) { (map[key] = map[key] || {})[pid] = true; }
-  players.forEach(function (p) {
+  m15NameRows_(players).forEach(function (p) {
     const t = rsToks_(p.DisplayName);
     if (!t.length) return;
     const pid = String(p.PlayerID);

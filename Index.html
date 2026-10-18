@@ -102,7 +102,7 @@ a.lbh:hover{text-decoration:underline}
 .card .hd .hdl{color:inherit;text-decoration:none}
 .card .hd .hdl:hover{color:var(--accent);text-decoration:underline}
 .muted{color:var(--ink3);font-size:14px}
-/* player-entered statistics awaiting approval: present, but grey until an
+/* player-reported statistics: present, but grey until an
    official confirms them - and any total they flow into goes grey with them */
 tr.prov td,tr.prov td a,tr.prov b,.prov{color:var(--ink3)!important}
 .grid{display:grid;gap:12px}
@@ -2559,7 +2559,7 @@ function mxTable(m){
     h+='<tr><td'+aB+'>'+(aH?a:'-')+'</td><td class="lbl">'+esc(r[0])+'</td><td'+bB+'>'+(bH?b:'-')+'</td></tr>';
   });
   h+='</tbody></table>';
-  if(A.prov||H.prov)h+='<div class="muted" style="font-size:11px;margin-top:3px">Includes player-entered stats awaiting approval.</div>';
+  if(A.prov||H.prov)h+='<div class="muted" style="font-size:11px;margin-top:3px">Includes player-reported stats.</div>';
   return head+h;
 }
 function sortable(id){
@@ -3118,6 +3118,8 @@ var TEAM_STAT_FIELDS=[
   {f:'KR',label:'KR',ph:'st'},{f:'KRYds',label:'KR Yds',ph:'st'},
   {f:'PR',label:'PR',ph:'st'},{f:'PRYds',label:'PR Yds',ph:'st'},
   {f:'Blocks',label:'Blk',ph:'st'},
+  {f:'BlockedPunts',label:'Blocked punts',ph:'st'},
+  {f:'TwoPointConversions',label:'2PT made',ph:'off'},
   /* Quarterback rating, on the 0–158.3 scale MaxPreps prints as "QB Rate" —
      which is the NFL formula, not NCAA efficiency. Both are real ratings and
      they disagree loudly: J. Lucas going 7 of 15 for 126 and a touchdown is
@@ -4558,6 +4560,8 @@ function lineStats(cat,x){
     add('CARRIES',x.rushAtt); add('RUSH YDS',x.rushYds); add('TD',x.rushTD);
   } else if(cat==='Receiving'){
     add('CATCHES',x.rec); add('REC YDS',x.recYds); add('TD',x.recTD);
+  } else if(cat==='SpecTeams'){
+    add('BLOCKED PUNTS',x.blockedPunts); add('2PT MADE',x.twoPointConversions);
   } else {
     var tk=(Number(x.solo)||0)+(Number(x.asst)||0);
     if(tk) out.push({k:'TACKLES',v:tk});
@@ -4851,7 +4855,7 @@ function shade(hex){
    special teams - and the log used to print each of them: three lines for one
    Friday, each blank across the other two's columns, reading as three games.
    Here the rows of a game are added into one bag. A game any part of which is
-   still awaiting approval is grey as a whole. Order is kept as sent - newest
+   containing player-reported values is grey as a whole. Order is kept as sent - newest
    season first, latest week first. */
 function playerGameLines(rows){
   var by={},out=[];
@@ -5002,7 +5006,7 @@ function pgPlayer(r){
           [{t:'Season'},{t:'Team'},{t:'GP',n:1}].concat(sc.map(function(c){return {t:c.label,n:1};})),
           srows,function(x){
             var bag=tsBagOf(x);
-            return '<tr'+(x.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+
+            return '<tr'+(x.prov?' class="prov" title="includes player-reported stats"':'')+
               '><td class="nm">'+esc(seasonLabel(x.seasonId))+'</td><td><a href="#/team/'+esc(x.teamId)+'">'+
               esc(tname(x.teamId))+'</a></td><td class="n" data-v="'+(x.gp||0)+'">'+n(x.gp)+'</td>'+
               sc.map(function(c){return tsCell(tsVal(bag,c),c,false);}).join('')+'</tr>';});
@@ -5021,7 +5025,7 @@ function pgPlayer(r){
         s+='<div id="sec-log"><h2>Game Log</h2>'+tbl('gl',
           [{t:'Season'},{t:'Wk',n:1},{t:'Opp'},{t:'Result'}].concat(lc.map(function(c){return {t:c.label,n:1};})),
           lrows,function(g){
-            return '<tr'+(g.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+
+            return '<tr'+(g.prov?' class="prov" title="includes player-reported stats"':'')+
               '><td>'+esc(seasonLabel(g.season))+'</td><td class="n" data-v="'+(g.week||0)+'">'+n(g.week)+'</td>'+
               '<td>'+esc(g.opp)+'</td><td>'+esc(gameResultFor(g,teamOfSeason[g.season]))+'</td>'+
               lc.map(function(c){return tsCell(tsVal(g.bag,c),c,false);}).join('')+'</tr>';})+'</div>';
@@ -5147,17 +5151,20 @@ function pgGame(r){
              is hovered or focused, so a box score reads as a box score and
              the offer is there the moment somebody looks for it. */
           if(cat==='Passing'){cols=[{t:'Player'},{t:'C/A',n:1},{t:'Yds',n:1},{t:'TD',n:1},{t:'INT',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+
               n(x.passComp)+'/'+n(x.passAtt)+'</td><td class="n">'+n(x.passYds)+'</td><td class="n">'+
               n(x.passTD)+'</td><td class="n">'+n(x.passInt)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           else if(cat==='Rushing'){cols=[{t:'Player'},{t:'Att',n:1},{t:'Yds',n:1},{t:'TD',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rushAtt)+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rushAtt)+
               '</td><td class="n">'+n(x.rushYds)+'</td><td class="n">'+n(x.rushTD)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           else if(cat==='Receiving'){cols=[{t:'Player'},{t:'Rec',n:1},{t:'Yds',n:1},{t:'TD',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rec)+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rec)+
               '</td><td class="n">'+n(x.recYds)+'</td><td class="n">'+n(x.recTD)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
+          else if(cat==='SpecTeams'){cols=[{t:'Player'},{t:'Blocked punts',n:1},{t:'2PT made',n:1},{t:''}];
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.blockedPunts)+
+              '</td><td class="n">'+n(x.twoPointConversions)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           else {cols=[{t:'Player'},{t:'Solo',n:1},{t:'Ast',n:1},{t:'TFL',n:1},{t:'Sacks',n:1},{t:'INT',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.solo)+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.solo)+
               '</td><td class="n">'+n(x.asst)+'</td><td class="n">'+n(x.tfl)+'</td><td class="n">'+
               n(x.sacks)+'</td><td class="n">'+n(x.int)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           out+='<div class="card" style="margin-bottom:10px"><div class="hd">'+esc(cat)+'</div>'+
@@ -5659,7 +5666,7 @@ function renderStats(f,o,d){
        /* a player's captaincy belongs to a season, and a multi-season row spans
           several - mark him from the newest one the row actually covers */
        var rs=(row.seasonIds&&row.seasonIds[0])||(o.range==='SEASON'?SEASON:'');
-       return '<tr'+(row.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+'>'+cols.map(function(c){
+       return '<tr'+(row.prov?' class="prov" title="includes player-reported stats"':'')+'>'+cols.map(function(c){
          if(c.key==='player') return '<td class="nm">'+playerLink(row.playerId,row.player,rs)+'</td>';
          if(c.key==='team')   return '<td>'+(row.teamId?'<a href="#/team/'+esc(row.teamId)+'">'+
                                              esc(row.team)+'</a>':esc(row.team))+'</td>';
@@ -5906,9 +5913,8 @@ function fKeyNote(m){
       'so those are exact.'+tail;
   return 'Standard '+(m.formatLabel||'PPR')+' scoring ('+(m.formatNote||'')+'), plus the '+
     'standard IDP table so defenders score, plus one category of our own for the line. '+
-    'Two things a standard league scores are absent, both for the same reason — the '+
-    'conference does not record them: the two-point conversion, worth 2 apiece, and '+
-    'the distance of a field goal, which is why every field goal here is a flat 3 '+
+    'Successful two-point conversions score 2 for the scorer only. '+
+    'Field goal distance is not recorded, which is why every field goal here is a flat 3 '+
     'rather than 3, 4 or 5.'+tail;
 }
 
@@ -5926,7 +5932,7 @@ function fPredictionNote(m){
 function fPredictionCell(row){
   var valid=has(row.prediction);
   var note=valid?(row.predictionTeam?'For '+row.predictionTeam+'. ':'')+'Based on '+row.predictionGames+' recorded game'+(row.predictionGames===1?'':'s')+
-    (row.predictionProvisional?'; includes statistics awaiting approval':''):'No estimate: no prior game records or no upcoming fixture';
+    (row.predictionProvisional?'; includes player-reported statistics':''):'No estimate: no prior game records or no upcoming fixture';
   return '<td class="n fprediction" title="'+esc(note)+'" aria-label="'+esc(valid?'Prediction '+fpt(row.prediction)+'. '+note:note)+'">'+
     (valid?fpt(row.prediction):'&mdash;')+'</td>';
 }
@@ -6001,7 +6007,7 @@ function renderFantasyBoard(f,o,d){
      '</tr></thead><tbody>'+
      d.rows.map(function(row){
        var cats=row.cats||{};
-       return '<tr'+(row.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+'>'+
+       return '<tr'+(row.prov?' class="prov" title="includes player-reported stats"':'')+'>'+
          '<td class="n">'+esc(has(row.rank)?String(row.rank):'')+'</td>'+
          '<td class="nm"><a href="'+esc(fHash(o,row.playerId))+'">'+esc(row.player)+'</a>'+
            (team?'':'<span class="fsub">'+

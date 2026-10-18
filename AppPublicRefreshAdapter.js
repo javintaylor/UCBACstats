@@ -24,7 +24,7 @@ function appPublicRows_(tabName) {
 }
 function appPublicInputRows_() {
   var contract = UCBACPublicSource.contract, result = {};
-  var extra = {Games:['Notes'], PlayerGameStats:['Pancakes','Blocks'],
+  var extra = {Games:['Notes'], PlayerGameStats:['Pancakes','Blocks','BlockedPunts','TwoPointConversions'],
     TeamSeasons:['TeamID','SeasonID','Wins','Losses','ConfWins','ConfLosses','PointsFor','DefPointsAllowed']};
   ['Seasons','Teams','Players','PlayerSeasons','Games','PlayerGameStats','TeamSeasons'].forEach(function (name) {
     var sh = db_().getSheetByName(name);
@@ -56,10 +56,12 @@ function appPublicInputRows_() {
     rows.forEach(function(row,index){
       // A row with only excluded columns is ambiguous. Keep ordinary website
       // behavior by abandoning app capture rather than guessing its meaning.
-      if(!Object.keys(row).some(function(key){return row[key]!==''&&row[key]!==null;}))throw Error('Unresolved empty source input');
+      if(!Object.keys(row).some(function(key){return row[key]!==''&&row[key]!==null;}) &&
+         !m15RetiredSlot_(name,index+2))throw Error('Unresolved empty source input');
       row.__row=index+2;
     });
-    result[name]=rows;
+    // Approved archived slots have no live values; keep all other empty-row refusals.
+    result[name]=rows.filter(function(row){return Object.keys(row).some(function(key){return key!=='__row'&&row[key]!==''&&row[key]!==null;});});
   });
   return result;
 }

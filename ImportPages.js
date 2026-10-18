@@ -346,6 +346,7 @@ function _ipSet_(sh, header, sheetRow, column, value) {
 
 /** Read layer: the awards a player has won, newest season first. */
 function apiPlayerAwards_(playerId) {
+  playerId = m15Canonical_(playerId);
   if (!hasTab_(IP_AWARDS_TAB)) return [];
   return rowsOf_(IP_AWARDS_TAB)
     .filter(function (a) { return _ipStr_(a.PlayerID) === String(playerId); })

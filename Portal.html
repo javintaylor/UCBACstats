@@ -380,6 +380,24 @@
 
 html{scrollbar-gutter:stable}#view{overflow-anchor:none}
 [role="tab"]:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+
+  .account-closure{font-size:16px;line-height:1.5}
+  .account-closure h2{font-size:18px}
+  .account-closure p{max-width:70ch;margin:0 0 16px}
+  .account-closure label{display:block;font-weight:600;margin-block:16px 6px}
+  .account-closure input,.account-closure textarea{font:inherit;min-height:44px;width:100%;min-width:0}
+  .account-closure textarea{min-height:96px;resize:vertical}
+  .account-closure button{min-height:44px;white-space:nowrap}
+  .closure-actions{display:flex;gap:12px;align-items:start;margin-top:16px}
+  .closure-actions input{flex:1}
+  .closure-target{display:grid;gap:4px;overflow-wrap:anywhere;margin-bottom:16px}
+  .closure-hint{font-size:14px;color:var(--muted)}
+  #closure-feedback{min-height:24px;margin-top:16px;overflow-wrap:anywhere}
+  #closure-feedback[role="alert"]{color:var(--bad)}
+  @media(prefers-color-scheme:dark){.account-closure{--bad:#ff8a80}}
+  .account-closure button:active{background:color-mix(in srgb,var(--ink) 8%,var(--card))}
+  @media(max-width:600px){.closure-actions{flex-wrap:wrap}.closure-actions input{flex-basis:100%}.closure-actions button{flex:1}}
+
 </style><?!= include_('PolicyUI'); ?>
 </head><body>
 
@@ -2527,7 +2545,8 @@ var BOX_KEY = {
   PassAtt:'passAtt', PassComp:'passComp', PassYds:'passYds', PassTD:'passTD',
   PassInt:'passInt', RushAtt:'rushAtt', RushYds:'rushYds', RushTD:'rushTD',
   Rec:'rec', RecYds:'recYds', RecTD:'recTD',
-  TackleSolo:'solo', TackleAssist:'asst', TFL:'tfl', Sacks:'sacks', Int:'int'
+  TackleSolo:'solo', TackleAssist:'asst', TFL:'tfl', Sacks:'sacks', Int:'int',
+  BlockedPunts:'blockedPunts', TwoPointConversions:'twoPointConversions'
 };
 
 var FIELD_LABEL = {
@@ -2537,7 +2556,8 @@ var FIELD_LABEL = {
   TackleSolo:'Solo', TackleAssist:'Asst', TFL:'TFL', Sacks:'Sacks',
   Int:'INT', FF:'FF', FR:'FR', PassDef:'PD', DefTD:'TD',
   FGM:'FGM', FGA:'FGA', XPM:'XPM', XPA:'XPA', Punts:'Punts', PuntYds:'Punt yds',
-  KR:'KR', KRYds:'KR yds', PR:'PR', PRYds:'PR yds'
+  KR:'KR', KRYds:'KR yds', PR:'PR', PRYds:'PR yds',
+  BlockedPunts:'Blocked punts', TwoPointConversions:'2PT made'
 };
 
 /* The same measures spelled out, for a player choosing one to dispute and for
@@ -2555,7 +2575,9 @@ var FIELD_LONG = {
   FGM:'Field goals made', FGA:'Field goals attempted', XPM:'Extra points made',
   XPA:'Extra points attempted', Punts:'Punts', PuntYds:'Punt yards',
   KR:'Kick returns', KRYds:'Kick return yards', PR:'Punt returns',
-  PRYds:'Punt return yards'
+  PRYds:'Punt return yards',
+  BlockedPunts:'Blocked punts (subset of blocked kicks; do not add to Blocks)',
+  TwoPointConversions:'Successful two-point conversions (scorer only; exclude ordinary offensive stats)'
 };
 function fieldLong(f){ return FIELD_LONG[f] || f; }
 
@@ -3004,6 +3026,75 @@ function renderLinksAgain(){
   viewLinks();
 }
 
+/* Admin closure stays in Approvals; server calls independently enforce ADMIN. */
+var CLOSE_ACCOUNT={target:'',review:null,reason:'',confirmation:'',pending:false,message:'',error:'',retry:null};
+function accountClosureHTML(){
+  if(!STATE.auth||!STATE.auth.isAdmin)return '';
+  var c=CLOSE_ACCOUNT,r=c.review,disabled=c.pending?' disabled':'',h='';
+  h='<section id="account-closure" class="card account-closure" aria-labelledby="account-closure-heading" aria-busy="'+(c.pending?'true':'false')+'">'
+    +'<h2 id="account-closure-heading">Account closure</h2>'
+    +'<p>Close an account after verifying the owner’s request. Account and policy history stay archived; player and game history remain.</p>';
+  if(c.retry){
+    h+='<p>Closure was saved. Cache cleanup needs another attempt; retired sessions remain blocked.</p>'
+      +'<button type="button" data-a="closeRetry"'+disabled+'>'+(c.pending?'Clearing caches…':'Retry cache cleanup')+'</button>';
+  }else if(r&&!r.closed){
+    h+='<div class="closure-target"><strong>'+esc(r.name||r.email)+'</strong><span>'+esc(r.email)+'</span><span>'+esc(r.accountId)+' / '+esc(r.status)+' / '+esc(r.role)+'</span></div>'
+      +'<p>This ends '+plural(r.sessions,'session')+' and disables '+plural(r.coachGrants,'coach or administrator grant')+'. The email becomes available for fresh registration with new policy acknowledgments.</p>'
+      +(r.reviewLinksAffected?'<p>This invalidates existing emailed account and correction review links for '+esc(r.reviewLinkScope||'the affected teams')+', including links held by other reviewers. Remaining reviewers can sign in and use Approvals.</p>':'')
+      +'<p class="closure-hint">This review expires after five minutes. Review the account again if its details change.</p>'
+      +'<label for="closure-reason">Reason for closure</label><textarea id="closure-reason" data-h="closeReason" minlength="8" maxlength="500" aria-describedby="closure-reason-help"'+disabled+'>'+esc(c.reason)+'</textarea>'
+      +'<p id="closure-reason-help" class="closure-hint">Record how the closure was authorized. Use 8–500 characters.</p>'
+      +'<label for="closure-confirm">Type '+esc(r.email)+' to confirm</label><input id="closure-confirm" data-h="closeConfirm" type="email" autocomplete="off" spellcheck="false" value="'+esc(c.confirmation)+'"'+disabled+'>'
+      +'<div class="closure-actions"><button type="button" data-a="closeCancel"'+disabled+'>Cancel</button><button type="button" class="danger" data-a="closeConfirm"'+disabled+'>'+(c.pending?'Closing account…':'Close account')+'</button></div>';
+  }else{
+    if(r&&r.closed)h+='<p>'+esc(r.message)+' '+esc(r.accountId)+'</p>';
+    h+='<label for="closure-target">Exact email or account ID</label><div class="closure-actions"><input id="closure-target" data-h="closeTarget" autocomplete="off" value="'+esc(c.target)+'"'+disabled+'><button type="button" data-a="closeReview"'+disabled+'>'+(c.pending?'Reviewing…':'Review account')+'</button></div>';
+  }
+  h+='<div id="closure-feedback" tabindex="-1" role="'+(c.error?'alert':'status')+'" aria-live="polite">'+esc(c.error||c.message)+'</div></section>';
+  return h;
+}
+function paintAccountClosure(focus){
+  var el=document.getElementById('account-closure');if(!el)return;
+  el.outerHTML=accountClosureHTML();
+  if(focus){var input=document.getElementById(focus);if(input)input.focus();}
+}
+INP.closeTarget=function(el){CLOSE_ACCOUNT.target=el.value;};
+INP.closeReason=function(el){CLOSE_ACCOUNT.reason=el.value;};
+INP.closeConfirm=function(el){CLOSE_ACCOUNT.confirmation=el.value;};
+ACT.closeCancel=function(){
+  if(CLOSE_ACCOUNT.pending)return;
+  CLOSE_ACCOUNT.review=null;CLOSE_ACCOUNT.reason='';CLOSE_ACCOUNT.confirmation='';CLOSE_ACCOUNT.error='';CLOSE_ACCOUNT.message='';
+  paintAccountClosure('closure-target');
+};
+ACT.closeReview=function(){
+  var c=CLOSE_ACCOUNT;if(c.pending)return;
+  if(!c.target.trim()){c.error='Enter the exact email or account ID.';paintAccountClosure('closure-target');return;}
+  var current=portalViewCurrent();c.pending=true;c.error='';c.message='';paintAccountClosure();
+  call('svcPrepareAccountClosure',[c.target.trim()]).then(function(r){
+    c.pending=false;if(!current())return;
+    c.review=r;c.reason='';c.confirmation='';paintAccountClosure(r.closed?'closure-feedback':'closure-reason');
+  }).catch(function(e){c.pending=false;if(!current())return;c.error=msgOf(e);paintAccountClosure('closure-feedback');});
+};
+function sendAccountClosure(p){
+  var c=CLOSE_ACCOUNT;if(c.pending)return;
+  var current=portalViewCurrent();c.pending=true;c.error='';c.message='';paintAccountClosure();
+  call('svcCloseAccount',[p]).then(function(r){
+    c.pending=false;if(!current())return;
+    if(!r||!r.ok)throw new Error((r&&r.message)||'Closure was not confirmed. Review the account again.');
+    c.message=r.message;c.review=null;c.reason='';c.confirmation='';c.retry=r.cacheCleared?null:p;
+    STATE.ta=null;STATE.roster=null;STATE.pending=null;STATE.acctTotals=null;
+    paintAccountClosure('closure-feedback');
+    if(r.cacheCleared)refreshAuthThen(viewApprovals);
+  }).catch(function(e){c.pending=false;if(!current())return;c.error=msgOf(e);paintAccountClosure('closure-feedback');});
+}
+ACT.closeConfirm=function(){
+  var c=CLOSE_ACCOUNT,r=c.review;if(c.pending||!r||r.closed)return;
+  if(c.reason.trim().length<8||c.reason.trim().length>500){c.error='Enter a closure reason of 8–500 characters.';paintAccountClosure('closure-reason');return;}
+  if(c.confirmation.trim().toLowerCase()!==r.email){c.error='Type the reviewed email exactly to confirm.';paintAccountClosure('closure-confirm');return;}
+  sendAccountClosure({ticket:r.ticket,accountId:r.accountId,reason:c.reason.trim(),confirmEmail:c.confirmation.trim()});
+};
+ACT.closeRetry=function(){if(CLOSE_ACCOUNT.retry)sendAccountClosure(CLOSE_ACCOUNT.retry);};
+
 /* - Approvals - */
 
 function viewApprovals(){
@@ -3016,7 +3107,7 @@ function viewApprovals(){
     // A coach with no pending queue is not an error, and a thrown "coaches only"
     // must not take the corrections list down with it.
     call('svcPendingAccounts').catch(function(){if(!isCurrent())return; return { pending: [], totals: null }; }),
-    call('svcPendingPlayerStats').catch(function(){if(!isCurrent())return; return []; }),
+    Promise.resolve([]),
     /* Corrections come from their own endpoint, scoped by role, NOT from the
        team payload: an administrator's badge counts the whole conference and
        his list has to match it. Asking svcTeamAdmin would show him only the
@@ -3055,6 +3146,8 @@ function renderApprovals(d, pending){
       + '<b style="font-size:24px">'+Number(tt.pending||0)+'</b></div>'
       + '</div></div>';
   }
+
+  h += accountClosureHTML();
 
   h += '<div class="card"><h2>Account requests'
     + (pending.length?'<span class="badge">'+pending.length+'</span>':'')+'</h2>';
@@ -3165,44 +3258,10 @@ function renderApprovals(d, pending){
   }
   h += '</div>';
 
-  /* - player-entered stats -
-     Live on the site in grey. Approve turns them black; reject deletes them;
-     entering the official box score in Stat Entry replaces them without
-     touching this queue. */
-  var ps = STATE.pendStats || [];
-  h += '<div class="card"><h2>Stats waiting for approval'
-    + (ps.length?'<span class="badge">'+ps.length+'</span>':'')+'</h2>';
-  if (!ps.length){
-    h += '<div class="sub">Nothing waiting. Only lines players enter themselves under My Stats '
-      + 'land here, in grey on the site until a coach or an administrator confirms them. A '
-      + 'coach\'s own uploads and box scores are official as they land. '
-      + 'Lines waiting here are counted in the morning summary email.</div>';
-  } else {
-    h += ps.map(function(g){
-        var nums = g.lines.map(function(l){
-          return '<span class="pill">'+esc(l.category)+'</span> '
-            + Object.keys(l).filter(function(k){ return k!=='category'; })
-                .map(function(k){ return esc(FIELD_LABEL[k]||k)+' '+esc(l[k]); }).join(' \u00b7 ');
-        }).join('<br>');
-        return '<div class="req">'
-          + '<div class="row"><span class="nm">'+esc(g.player)+'</span>'
-          + '<span class="pill">player entered</span>'
-          + '<span class="sub">'+esc(g.teamName)+'</span>'
-          + '<span class="sub">'+(g.week!==null?'week '+esc(g.week):'')+(g.opponent?' \u00b7 vs '+esc(g.opponent):'')+'</span>'
-          + '<span class="sub" style="margin-left:auto">'+esc(dateShort(g.enteredAt))+'</span></div>'
-          + '<div class="kv" style="margin-top:6px">'+nums+'</div>'
-          + '<div class="row" style="margin-top:10px">'
-          + '<button type="button" class="mini primary" data-a="psYes" data-g="'+esc(g.gameId)+'" data-p="'+esc(g.playerId)+'">Approve</button>'
-          + '<button type="button" class="mini danger" data-a="psNo" data-g="'+esc(g.gameId)+'" data-p="'+esc(g.playerId)+'">Reject</button>'
-          + '</div></div>';
-      }).join('')
-      + '<div class="sub">Approving keeps the numbers exactly as entered and turns them '
-      + 'black across the site. Rejecting removes them entirely and tells the player. '
-      + 'Entering the official box score yourself replaces them without this queue.</div>';
-  }
-  h += '</div>';
+  // Initial player entries publish immediately; only corrections need stat approval.
 
   paint(h);
+  if(CLOSE_ACCOUNT.message)paintAccountClosure('closure-feedback');
 }
 
 /* - deciding one item in a queue -
@@ -3277,16 +3336,7 @@ function decideItem(el, run, onOk){
   });
 }
 
-function decidePlayerStats(el, decision){
-  var gid = el.getAttribute('data-g'), pid = el.getAttribute('data-p');
-  decideItem(el, function(){ return call('svcReviewPlayerStats', [gid, pid, decision]); },
-    function(){
-      STATE.pendStats = null; STATE.ta = null;
-      refreshAuthThen(viewApprovals);
-    });
-}
-ACT.psYes = function(el){ decidePlayerStats(el, 'APPROVE'); };
-ACT.psNo  = function(el){ decidePlayerStats(el, 'REJECT'); };
+
 
 var NOTES = {};
 INP.apNote = function(el){ NOTES['a'+el.getAttribute('data-id')] = el.value; };
@@ -4255,7 +4305,9 @@ var SHARE_STATS = [
   { f:'PRYds',    label:'PR YDS',    side:'SPECIAL', w:0.4 },
   /* A blocked kick is one play and it is usually the play of the night,
      so it outranks the yardage around it the way a sack does. */
-  { f:'Blocks',   label:'BLOCKS',    side:'SPECIAL', w:35 }
+  { f:'Blocks',   label:'BLOCKS',    side:'SPECIAL', w:35 },
+  { f:'BlockedPunts', label:'BLOCKED PUNTS', side:'SPECIAL', w:35 },
+  { f:'TwoPointConversions', label:'2PT MADE', side:'OFFENSE', w:20 }
 ];
 var SHARE_MAX_TILES = 6;
 
@@ -4739,7 +4791,7 @@ ACT.seSend = function(el){
     }
     STATE.statEntry = null;
     STATE.mine = null;               // the log has a new grey line to show
-    flash('Submitted. It shows in grey until your coach approves it.', 'good');
+    flash('Saved. Your stats are visible on the site in grey as player-reported.', 'good');
     viewMyStats();
   }).catch(function(e){
     en.busy = false; el.disabled = false;
@@ -4790,8 +4842,7 @@ function renderMyStats(){
   h += '</div>';
 
   /* - entering your own line -
-     Published immediately, in grey, and queued for your coach: approval turns
-     it black, rejection removes it, and the official box score replaces it. */
+     Published immediately in grey, with no approval queue. Official imports replace covered fields. */
   var ed2 = (STATE.prof && STATE.prof.editable) || {};
   var cats = ed2.statCategories || {};
   var catOrder = (ed2.statCategoryOrder || []).filter(function(c){ return cats[c]; });
@@ -4802,10 +4853,10 @@ function renderMyStats(){
       + '1&#41; Pick the game - entry opens the morning after it is played. '
       + '2&#41; Pick a category (Passing, Rushing, Defense&hellip;) and type your numbers - '
       + 'leave anything you did not record blank, never 0. '
-      + '3&#41; Save. Your line publishes on the site immediately in <b>grey</b> and your '
-      + 'coach gets an approval badge: approval turns it black, rejection removes it, and '
-      + 'anything your coach enters replaces it automatically. '
-      + 'Once the official box score is in, use <b>Correct a number</b> below instead.</div>'
+      + '3&#41; Save. Your stats publish immediately in <b>grey</b> as player-reported; no approval is needed. '
+      + 'Verified coach imports replace the matching fields automatically. '
+      + 'While team reporting is incomplete, you can add missing categories or update fields you reported. '
+      + 'For an officially recorded field, or once team reporting is marked complete, use <b>Correct a number</b> below.</div>'
       + '<div class="row" style="flex-wrap:wrap;align-items:flex-end">'
       + '<div><label class="f">Game</label><select data-h="seGame">'
       + '<option value="">Choose...</option>'
@@ -4830,7 +4881,7 @@ function renderMyStats(){
         + '</div>';
     }
     h += '<div class="row end" style="margin-top:12px"><span class="sub grow" id="seMsg"></span>'
-      + '<button type="button" class="primary mini" data-a="seSend"'+(en.busy?' disabled':'')+'>Submit for review</button>'
+      + '<button type="button" class="primary mini" data-a="seSend"'+(en.busy?' disabled':'')+'>Save stats</button>'
       + '</div></div>';
   }
 
@@ -5254,7 +5305,7 @@ function dashPlayerTiles(prof, cur, mine, corr, pi){
   var nGames = Object.keys(gameIds).length, grey = log.filter(function(x){ return x.prov; }).length;
   var ss = ((mine && mine.seasonStats) || []).filter(function(x){ return x.seasonId === season; })[0];
   h += dashTile('', 'My stats', nGames+' game'+(nGames === 1 ? '' : 's')+' logged',
-                dashMyLine(ss) || (grey ? grey+' line'+(grey === 1 ? '' : 's')+' awaiting approval' : 'Enter a game on My Stats'),
+                dashMyLine(ss) || (grey ? grey+' line'+(grey === 1 ? '' : 's')+' player-reported' : 'Enter a game on My Stats'),
                 'mystats');
   // corrections he has filed
   var open = corr.filter(function(c){ return c.status === 'PENDING'; }).length;
@@ -5272,7 +5323,7 @@ function dashMyLine(ss){
                [n(ss.solo) + n(ss.asst), 'tackles'], [n(ss.sacks), 'sacks'], [n(ss.int), 'interceptions']]
     .filter(function(p){ return p[0] > 0; }).sort(function(a, b){ return b[0] - a[0]; });
   if (!picks.length) return '';
-  return picks.slice(0, 2).map(function(p){ return p[0]+' '+p[1]; }).join(' · ')+(ss.prov ? ' · some awaiting approval' : '');
+  return picks.slice(0, 2).map(function(p){ return p[0]+' '+p[1]; }).join(' · ')+(ss.prov ? ' · includes player-reported stats' : '');
 }
 
 function dashTile(cls, head, n, sub, view){
@@ -5382,7 +5433,7 @@ function dashTopFive(lb, pid){
   h += '<div class="sub" style="margin-bottom:10px">Where '+(pid ? 'you stand' : esc(team)+' players stand')+' in the top five of any stat category, conference-wide.</div>'
     + '<div class="scroll"><table><thead><tr><th>Rank</th><th>Player</th><th>Category</th><th class="num">Value</th></tr></thead><tbody>'
     + mine.map(function(x){
-        return '<tr'+(x.prov ? ' class="provrow" title="includes stats awaiting approval"' : '')+'>'
+        return '<tr'+(x.prov ? ' class="provrow" title="includes player-reported stats"' : '')+'>'
           + '<td><span class="tk '+(x.rank === 1 ? 'ok' : 'none')+'">#'+esc(x.rank)+'</span></td>'
           + '<td class="nm">'+esc(x.player)+'</td><td>'+esc(x.label || x.cat)+'</td><td class="num">'+esc(x.value)+'</td></tr>';
       }).join('')
@@ -5400,7 +5451,6 @@ function dashTiles(pi){
   var h = '<div class="dash-tiles">'
     + wait('pendingAccounts', 'Account requests')
     + wait('pendingCorrections', 'Stat corrections')
-    + wait('pendingStats', 'Stats to approve')
     + (a.isAdmin && tt ? dashTile('', 'Accounts', n(tt.players) + n(tt.coaches),
                                   n(tt.players)+' players · '+n(tt.coaches)+' coaches', 'approvals') : '');
   return h + dashPlaysTile(pi) + '</div>';
@@ -5428,7 +5478,7 @@ function dashBox(b, meta){
   var text = meta.unit === 'players' ? n+' player'+(n===1?'':'s') : n+' '+esc(meta.unit);
   var cls = b.short ? 'bad' : b.pending ? 'warn' : 'ok';
   return '<span class="tk '+cls+'"'
-    + (b.pending ? ' title="Some of this is waiting in Approvals"' : b.short ? ' title="Fewer than '+STATE.minPlayers+' players"' : '')
+    + (b.pending ? ' title="Includes player-reported stats"' : b.short ? ' title="Fewer than '+STATE.minPlayers+' players"' : '')
     + '>'+text+'</span>';
 }
 /* the reason a row is short of complete, in words */
@@ -5469,7 +5519,7 @@ function dashTracker(tr, title){
   h += '<div class="sub" style="margin-bottom:12px">'+(one ? 'Each week you played.' : 'Each school, each week it played.')
     + ' Team boxes carry the totals on file - yards on offense, tackles on defense. Individual boxes count the '
     + 'named players with stats on that side; a side counts as submitted at '+STATE.minPlayers+' players or more. '
-    + 'Amber is in and waiting in Approvals.</div>';
+    + 'Amber indicates player-reported stats.</div>';
   /* Stats In is a different question from the boxes beside it. The boxes say
      what arrived; this says somebody looked and it was ALL of it - which is
      what the other side's Allowed figures are built on, and cannot be worked
@@ -5509,7 +5559,7 @@ function dashTracker(tr, title){
     var covN = Number(w.covPlayed || 0);
     var sum = '<summary>'+esc(w.label)
       + '<span class="sub">'+w.complete+' of '+w.teams+' complete</span>'
-      + (w.pending ? '<span class="tk warn">'+w.pending+' awaiting approval</span>' : '')
+      + (w.pending ? '<span class="tk warn">'+w.pending+' with player-reported stats</span>' : '')
       + (w.missing ? '<span class="tk bad">'+w.missing+' missing</span>'
                    : (w.teams ? '<span class="tk ok">All stats submitted</span>' : ''))
       /* A week with no conference game in it has nothing to receive, and a

@@ -50,7 +50,7 @@ function ciName_(raw) {
 function ciAccountStatus_(email) {
   if (!hasTab_('Accounts')) return '';
   const want = String(email || '').toLowerCase().trim();
-  const rows = rowsOf_('Accounts');
+  const rows = acctRows_();
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i].Email || '').toLowerCase().trim() !== want) continue;
     const st = String(rows[i].Status || '').toUpperCase().trim();

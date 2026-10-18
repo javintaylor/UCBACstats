@@ -777,6 +777,7 @@ function apiGame_(gameId) {
       rec: num_(r.Rec), recYds: num_(r.RecYds), recTD: num_(r.RecTD),
       solo: num_(r.TackleSolo), asst: num_(r.TackleAssist), tfl: num_(r.TFL),
       sacks: num_(r.Sacks), int: num_(r.Int),
+      blockedPunts: num_(r.BlockedPunts), twoPointConversions: num_(r.TwoPointConversions),
       // player-entered and not yet approved: the site renders it grey
       prov: provisionalSource_(r.SourceType)
     });
@@ -1019,6 +1020,7 @@ function buildPublicTeam_(teamId, seasonId) {
 // ───────────────────────────────── player
 
 function apiPlayer_(playerId) {
+  playerId = m15Canonical_(playerId);
   const p = rowsOf_(CONFIG.TABS.PLAYERS).filter(function (x) { return s_(x.PlayerID) === playerId; })[0];
   if (!p) return null;
 

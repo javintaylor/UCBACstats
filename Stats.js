@@ -32,7 +32,7 @@
  * would sort a player who reported nothing to the top of a leaderboard.
  */
 
-const STATS_CACHE_PREFIX = 'stats1:';   // bump the digit to invalidate every key
+const STATS_CACHE_PREFIX = 'stats2:';   // bump the digit to invalidate every key
 const STATS_CACHE_TTL    = 900;
 const STATS_DEFAULT_LIMIT = 50;
 // A page of 100 player rows with every column measured 91,700 characters against
@@ -151,6 +151,9 @@ const STATS_FIELDS = [
   { key: 'PRAvg',      label: 'PR Avg',      side: 'SPECIAL', group: 'Returns',   format: 'dec1', derived: true, rate: true },
   // a punt, a field goal or an extra point stopped at the line
   { key: 'Blocks',     label: 'Blk',         side: 'SPECIAL', group: 'Returns',   format: 'int' },
+
+  { key: 'BlockedPunts', label: 'Blocked punts', side: 'SPECIAL', group: 'Blocks', format: 'int' },
+  { key: 'TwoPointConversions', label: '2PT made', side: 'OFFENSE', group: 'Conversions', format: 'int' },
 
   // ── measurables (side MEASURE) — from the roster, keys are the sheet columns.
   // `asc` marks lower-is-better: a 40 sorts fastest first by default.

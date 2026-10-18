@@ -645,25 +645,36 @@ function apiSubmitMyStats_(gameId, rows) {
     throw new Error('Stat entry for this game opens the day after it is played. ' +
                     'Come back tomorrow.');
 
-  /* The window for self-entry is BEFORE the official box score exists. One
-     official line for this game and team — a coach's entry, an approved entry,
-     an import — closes it: from then on the player's road is a correction
-     request, which lands on the same Approvals badge. Two entry paths onto the
-     same recorded game would make every disagreement a race. */
-  const official = rowsOf_(CONFIG.TABS.PLAYER_STATS).some(function (r) {
-    return s_(r.GameID) === gameId && s_(r.TeamID) === teamId &&
-           s_(r.grain || r.Grain) === CONFIG.GRAIN.GAME &&
-           s_(r.SourceType) !== 'PLAYER_ENTRY';
-  });
-  if (official)
-    throw new Error('Your coach has already entered statistics for this game. If a ' +
-                    'number is missing or wrong, request a correction below — it goes ' +
-                    'to your coach the same way.');
+  // Completeness, identity, roster and timing are rechecked under the writer's
+  // script lock. Another player's approved line does not complete this team.
 
   /* No mail to the coach — the Approvals badge is the notification. Forty
      players entering Friday's stats must not be forty messages. */
   return apiSavePlayerStats_(gameId, teamId, rows,
                             { playerId: me.playerId, email: me.email });
+}
+
+/** Final self-entry eligibility. Call only while holding the stat-save lock. */
+function profileAssertSelfStats_(self, game, teamId) {
+  const current = profileWhoami_();
+  if (s_(self.playerId) !== s_(current.playerId) ||
+      s_(self.email).toLowerCase() !== s_(current.email).toLowerCase())
+    throw new Error('Your player account changed. Reload and try again.');
+  const seasonId = s_(game.SeasonID) || CONFIG.CURRENT_SEASON;
+  const seat = rowsOf_(CONFIG.TABS.PLAYER_SEASONS).filter(function (r) {
+    return s_(r.PlayerID) === current.playerId && s_(r.SeasonID) === seasonId;
+  })[0];
+  if (!seat || s_(seat.TeamID) !== teamId)
+    throw new Error('You are not on this team’s roster for this season. Reload or contact an administrator.');
+  const gameDate = apiDateStr_(game.GameDate);
+  if (gameDate && apiTodayStr_() <= gameDate)
+    throw new Error('Stat entry for this game opens the day after it is played. Come back tomorrow.');
+  // Both memo layers must be fresh after waiting for the shared script lock.
+  // Missing coverage and explicit FALSE mean incomplete, as on the tracker.
+  __statsCovMap = null;
+  delete __tableCache[STATSCOV.TAB];
+  if (statsCovComplete_(s_(game.GameID), teamId))
+    throw new Error('Your team’s statistics for this game are marked complete. If a number is missing or wrong, request a correction below.');
 }
 
 // ── write ──────────────────────────────────────────────────────────────────
@@ -735,6 +746,8 @@ function apiSaveProfile_(patch, forPlayerId) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // another execution may have written to either tab since this one read it
     delete __tableCache[CONFIG.TABS.PLAYERS];
     delete __tableCache[CONFIG.TABS.PLAYER_SEASONS];
@@ -997,6 +1010,8 @@ function apiRequestCorrection_(payload) {
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     ensureOpsTabs_();
     delete __tableCache[CONFIG.TABS.CORRECTIONS];
     acctAssertHeaders_(CONFIG.TABS.CORRECTIONS, PROFILE.CORRECTION_COLS);

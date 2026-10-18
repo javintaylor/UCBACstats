@@ -400,13 +400,7 @@ function trCorrections_(day) {
 }
 
 /** Stat lines a player entered himself that nobody has approved or removed. */
-function trPendingLines_() {
-  const tab = CONFIG.TABS.PLAYER_STATS;
-  if (!tab || !hasTab_(tab)) return 0;
-  var n = 0;
-  rowsOf_(tab).forEach(function (r) { if (s_(r.SourceType) === 'PLAYER_ENTRY') n++; });
-  return n;
-}
+function trPendingLines_() { return 0; }
 
 /** The links that settle an account request from the inbox, or nothing without an address. */
 function trAccountLinks_(base, id) {
