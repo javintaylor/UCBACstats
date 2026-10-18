@@ -83,8 +83,10 @@ function seRules_(ctx) {
     'Sacks and TFL (tackles for loss) are separate; do not count a sack as a TFL unless the document does.',
     'Passing: PassComp is completions, PassAtt attempts, PassInt interceptions THROWN. Int is interceptions CAUGHT by a defender.',
     'PassDef is pass break-ups. FF forced fumbles, FR fumble recoveries, DefTD defensive touchdowns. RushFum/RecFum are fumbles lost.',
-    '"2-point conversions" have no field: leave them out. Kick returns KR/KRYds, punt returns PR/PRYds.',
-    'Blocks is blocked kicks - a punt, field goal or extra point stopped at the line. Box scores often print it under defense; it belongs in Blocks.',
+    'TwoPointConversions counts successful two-point conversions for the scorer only, whether a run, catch or method unspecified. Do not credit the passer. Failed attempts are not successes.',
+    'Conversion plays do not count as PassAtt, PassComp, PassYds, PassTD, RushAtt, RushYds, RushTD, Rec, RecYds or RecTD. Do not add them to ordinary play totals.',
+    'Kick returns KR/KRYds, punt returns PR/PRYds.',
+    'Blocks preserves the combined blocked-kick total (punts, field goals and extra points). BlockedPunts records explicitly identified blocked punts only; it is a subset, never add it to Blocks. If only a blocked punt is reported, put it in BlockedPunts and omit Blocks unless a combined total is explicitly given. Never infer punt type from generic blocks.',
     'Skip rows that are team totals, opponents, or coaches. A name written twice in different sections is one player.',
     'jersey: the number beside the name if shown. name: the player as written, with the roster\'s spelling when one roster name clearly matches.',
     'team, opponent, week, gameDate, teamScore, opponentScore: fill from the document when present, else omit.'

@@ -111,9 +111,87 @@ function policyBirthDate_(v) {
 }
 
 function policyRows_(tab) { return hasTab_(tab) ? rowsOf_(tab) : []; }
+
+/** Append-only retirement evidence; missing Accounts alone never releases identity. */
+function policyRelease_(email) {
+  email = String(email || '').trim().toLowerCase();
+  return policyRows_('AccountIdentityReleases').filter(function(r) {
+    const at = new Date(r.ReleasedAt).getTime();
+    return String(r.Email || '').trim().toLowerCase() === email &&
+      !!r.PriorAccountID && !!r.ReleasedBy && isFinite(at) && at <= Date.now();
+  }).reduce(function(latest,r) {
+    return !latest || new Date(r.ReleasedAt) > new Date(latest.ReleasedAt) ? r : latest;
+  },null);
+}
+function policyAfterRelease_(email, at) {
+  const release = policyRelease_(email);
+  if (!release) return true;
+  const recorded = new Date(at).getTime();
+  return isFinite(recorded) && recorded > new Date(release.ReleasedAt).getTime();
+}
+function policyCheckRegistrationDob_(reg) {
+  const release = policyRelease_(reg.email);
+  if (release && (!isFinite(reg.registrationStartedAt) ||
+      Number(reg.registrationStartedAt) <= new Date(release.ReleasedAt).getTime()))
+    throw new Error('This registration predates the identity closure. Start a new registration and review the current policies.');
+  const prior = policyExistingDob_(String(reg.email || '').trim().toLowerCase());
+  var priorValid = '';
+  try { priorValid = policyBirthDate_(prior).value; } catch (ignore) {}
+  if (priorValid && priorValid !== reg.dob)
+    throw new Error('That birth date does not match the account record. Contact ' + POLICY.EMAIL + ' to correct it.');
+}
+/** Operator-only recovery after a verified closure; never exposed as a portal svc. */
+function policyReleaseClosedIdentity_(email, priorAccountId, reason) {
+  const me = accountsWhoami_();
+  if (me.role !== 'ADMIN') throw new Error('Administrator only.');
+  email = String(email || '').trim().toLowerCase();
+  priorAccountId = String(priorAccountId || '').trim();
+  reason = String(reason || '').trim();
+  if (!authMailable_(email) || !priorAccountId || !reason)
+    throw new Error('A verified email, prior account ID and closure reason are required.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
+  try {
+    __tableCache = {};
+    if (acctRows_().some(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email ||
+        String(r.AccountID || '').trim() === priorAccountId;
+    })) throw new Error('An account still exists; identity was not released.');
+    if (hasTab_('Coaches') && rowsOf_('Coaches').some(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email &&
+        String(r.Active).toUpperCase() !== 'FALSE';
+    })) throw new Error('A coach grant still exists; identity was not released.');
+    const evidence = policyRows_(POLICY.ACK_TAB).filter(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email &&
+        String(r.AccountID || '').trim() === priorAccountId;
+    });
+    if (!evidence.length) throw new Error('Prior identity evidence was not found.');
+    const existing = policyRelease_(email);
+    if (existing && String(existing.PriorAccountID) === priorAccountId &&
+        !evidence.some(function(r) {
+          return new Date(r.AcknowledgedAt).getTime() > new Date(existing.ReleasedAt).getTime();
+        })) return {released:false};
+    // Closure also ends prior sessions, preventing them inheriting a later account.
+    const now = new Date();
+    const sessions = hasTab_('Sessions') ? rowsOf_('Sessions').filter(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email && !r.RevokedAt;
+    }) : [];
+    updateCells_('Sessions', sessions.map(function(r) { return {row:r.__row,field:'RevokedAt',value:now}; }));
+    if (sessions.length) CacheService.getScriptCache().removeAll(sessions.map(function(r) {
+      return 'sess:' + String(r.SessionHash);
+    }));
+    policyEnsureTab_('AccountIdentityReleases',
+      ['ReleaseID','Email','PriorAccountID','ReleasedAt','ReleasedBy','Reason']);
+    appendRows_('AccountIdentityReleases',[{ReleaseID:Utilities.getUuid(),Email:email,
+      PriorAccountID:priorAccountId,ReleasedAt:now,ReleasedBy:me.email,Reason:reason}]);
+    return {released:true};
+  } finally { lock.releaseLock(); }
+}
+
 function policyProfile_(email) {
   return policyRows_(POLICY.PROFILE_TAB).filter(function (r) {
-    return String(r.Email || '').trim().toLowerCase() === email;
+    return String(r.Email || '').trim().toLowerCase() === email &&
+      policyAfterRelease_(email, r.RecordedAt);
   })[0] || null;
 }
 function policyDateText_(v) {
@@ -146,6 +224,7 @@ function policyLatestAck_(email) {
   return policyRows_(POLICY.ACK_TAB).filter(function (r) {
     const at = r.AcknowledgedAt ? new Date(r.AcknowledgedAt).getTime() : NaN;
     return String(r.Email || '').trim().toLowerCase() === email &&
+      policyAfterRelease_(email, r.AcknowledgedAt) &&
       !!String(r.BundleID || '') && isFinite(at) && at <= now &&
       String(r.TermsAgreed).toLowerCase() === 'true' &&
       String(r.PrivacyAcknowledged).toLowerCase() === 'true' &&
@@ -214,14 +293,16 @@ function policyEnsureTab_(name, columns) {
 }
 
 /** Called only after inbox/session verification. Never records raw session tokens. */
-function policyRecord_(email, dob, ack, source, registrationRole) {
+function policyRecord_(email, dob, ack, source, registrationRole, registrationStartedAt) {
   const birth = policyBirthDate_(dob);
   if (birth.age < 13) throw new Error('Account registration is available from age 13. Contact ' + POLICY.EMAIL + ' for help.');
   const bundle = policyValidateAck_(ack);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account update is being saved. Try again.');
   try {
-    [POLICY.PROFILE_TAB, POLICY.ACK_TAB, POLICY.DOC_TAB, ACCT.TAB].forEach(function (tab) { delete __tableCache[tab]; });
+    __tableCache = {};
+    authRecheckBoundSession_();
+    if (source === 'registration') policyCheckRegistrationDob_({email:email,dob:birth.value,registrationStartedAt:registrationStartedAt});
     policyEnsureTab_(POLICY.PROFILE_TAB, POLICY.PROFILE_COLS);
     policyEnsureTab_(POLICY.ACK_TAB, POLICY.ACK_COLS);
     policyEnsureTab_(POLICY.DOC_TAB, POLICY.DOC_COLS);
@@ -292,7 +373,8 @@ function policyLinkRegistration_(email) {
     if (!row || !row.AccountID) return;
     const updates = [];
     policyRows_(POLICY.ACK_TAB).forEach(function (r) {
-      if (String(r.Email || '').trim().toLowerCase() === email && r.Source === 'registration' && !r.AccountID)
+      if (String(r.Email || '').trim().toLowerCase() === email && r.Source === 'registration' && !r.AccountID &&
+          policyAfterRelease_(email, r.AcknowledgedAt))
         updates.push({row:r.__row, field:'AccountID', value:String(row.AccountID)});
     });
     updateCells_(POLICY.ACK_TAB, updates);
@@ -305,14 +387,10 @@ function policyLinkRegistration_(email) {
 function authFinalizeRegistration_(reg) {
   authDob_(reg.dob, reg.role);
   policyValidateAck_(reg.policies); // reject an old code flow after a policy change
-  const prior = policyExistingDob_(String(reg.email || '').toLowerCase());
-  var priorValid = '';
-  try { priorValid = policyBirthDate_(prior).value; } catch (ignore) {}
-  if (priorValid && priorValid !== reg.dob)
-    throw new Error('That birth date does not match the account record. Contact ' + POLICY.EMAIL + ' to correct it.');
+  policyCheckRegistrationDob_(reg);
   // Inbox verification has completed. Save its actual acknowledgment before
   // account creation, so a later audit/cache failure cannot lose this step.
-  policyRecord_(reg.email, reg.dob, reg.policies, 'registration', reg.role);
+  policyRecord_(reg.email, reg.dob, reg.policies, 'registration', reg.role, reg.registrationStartedAt);
   try { return acctFinalizeRegistration_(reg); }
   finally {
     try { policyLinkRegistration_(reg.email); }
@@ -337,3 +415,4 @@ function withBlitzSession_(token, fn) {
     return fn('account-' + authHash_(me.email).slice(0, 32));
   }, {fresh:true, allowIncomplete:true});
 }
+

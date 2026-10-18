@@ -46,6 +46,10 @@ function clearDirty_() { props_().deleteProperty(TRG.DIRTY_KEY); }
 
 /** Runs every SWEEP_MINUTES. Cheap when nothing changed. */
 function sweepRebuild() {
+  // Explicit READY batches only; the legacy StatsImport tab is never scanned.
+  // Queue failures do not suppress the existing derived-layer rebuild.
+  try { if (typeof sqWorker_ === 'function') sqWorker_(); }
+  catch (e) { Logger.log('Bounded stats queue paused this sweep: ' + String(e.message || '').replace(/[^A-Z_]/g,'').slice(0,80)); }
   if (!isDirty_()) return 'clean — nothing to do';
   return runRebuild_('sweep');
 }

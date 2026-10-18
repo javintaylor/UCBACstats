@@ -329,6 +329,14 @@ function apiMyCoachProfile_() {
 }
 
 function apiSaveCoachProfile_(patch) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; authRecheckBoundSession_();
+    return coachSaveProfileLocked_(patch);
+  } finally {lock.releaseLock();}
+}
+function coachSaveProfileLocked_(patch) {
   patch = patch || {};
   coachEnsureColumns_();
   const r = coachMyRow_();

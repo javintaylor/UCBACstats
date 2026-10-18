@@ -1,20 +1,26 @@
 [
   {
     "file": "API.js",
-    "bytes": 74979,
-    "sha256": "5ea0f38ef566ecc786eb7072b41802e5b139ebcd9314580367253582728ed84c",
+    "bytes": 75109,
+    "sha256": "f341f75f8f9cd0324c30ab4d21e18825524327a9596913124f1394d35f9339a0",
+    "sanitized": false
+  },
+  {
+    "file": "AccountClosure.js",
+    "bytes": 15106,
+    "sha256": "cedceb4848a8804029967997dc169ef86004c026cfad4d1a89c7d3c9cb77bd4a",
     "sanitized": false
   },
   {
     "file": "Accounts.js",
-    "bytes": 46748,
-    "sha256": "8606849ebf645958fab862ca1259122a6ac86aac7fadf657cd5f3cba0d968fc0",
+    "bytes": 47559,
+    "sha256": "c91ab741f006a651ecedb0fd132cc0afd3cac9bc00f4984957e1730d4b7829f8",
     "sanitized": true
   },
   {
     "file": "Admin.js",
-    "bytes": 18828,
-    "sha256": "a630e03532455781ac90943a6cdf5a145ab62218bf2087bbf7701167920b6d01",
+    "bytes": 19498,
+    "sha256": "84b1f94dc39be0a469e85bce4a8ef8755257657eb51e8c6f3f1ff9e4cdb4b62a",
     "sanitized": true
   },
   {
@@ -25,8 +31,8 @@
   },
   {
     "file": "Aggregation.js",
-    "bytes": 21944,
-    "sha256": "58772b7054e8ac4624786f43aa0ad6bf9eb9b9f428246be410e3fb4cf34ea565",
+    "bytes": 22070,
+    "sha256": "f80736c058dbb606c6edb3310f3e6dcf6b24613d53e29114a19ce26b4aad2b98",
     "sanitized": false
   },
   {
@@ -37,8 +43,8 @@
   },
   {
     "file": "AppPublicRefreshAdapter.js",
-    "bytes": 13149,
-    "sha256": "a414d04c52eb00710e3ae7979e7e490e8ca8581b09d92d4d4a1cea1bcf7c53e1",
+    "bytes": 13439,
+    "sha256": "f81036c362d9c395dd2aa2eb44ee3ed3ff171bc3a9a1b64c1f6a89e3a260cd4a",
     "sanitized": false
   },
   {
@@ -49,8 +55,8 @@
   },
   {
     "file": "Auth.js",
-    "bytes": 27443,
-    "sha256": "de29c07781d7dea5ed528eb580b898e8a1efe5890d94eaa917a6b45cfae33ddf",
+    "bytes": 29423,
+    "sha256": "9194c39ba7245ec3c3970aa4ffa11b78ec6d1214efe6c00a3a482dc2016e9d17",
     "sanitized": true
   },
   {
@@ -61,8 +67,8 @@
   },
   {
     "file": "Chat.js",
-    "bytes": 96100,
-    "sha256": "b0300d6f351cf6a8857fd8f1f0f460a39ae030b8f7cb7f7a0c69b600c77f8330",
+    "bytes": 95800,
+    "sha256": "8ec12b09ad13a5435f7b813acbdf9d5fea451b0ea5172a78dc91398b0b5074bf",
     "sanitized": true
   },
   {
@@ -79,14 +85,14 @@
   },
   {
     "file": "CoachInvites.js",
-    "bytes": 13506,
-    "sha256": "1020f197eaca20414861584e8363a492f6da40114b2ac983dd9f950f696eb781",
+    "bytes": 13498,
+    "sha256": "14469a766cc134b9f7d04f70fd99d794d8feebedd36daa403d205ec6e646f550",
     "sanitized": true
   },
   {
     "file": "CoachProfile.js",
-    "bytes": 18013,
-    "sha256": "1f839da7cc41b13e1c7504e634bc4dad617d7eb134f98db2c485d65e4667c177",
+    "bytes": 18347,
+    "sha256": "43098cf0f48a1423e88703e891199c1e9aeda7eab56bc471d9c6d803b3200e04",
     "sanitized": false
   },
   {
@@ -103,8 +109,8 @@
   },
   {
     "file": "CorrectionMail.js",
-    "bytes": 21391,
-    "sha256": "f1fae061b2d544216b337c361db075a5b30d08881f2c35fc3d67031f42969f7a",
+    "bytes": 21687,
+    "sha256": "7623c008f8429ea4d10d64f462854ee9bff0ed75d9777d09308ab04a33aad5c6",
     "sanitized": true
   },
   {
@@ -139,8 +145,8 @@
   },
   {
     "file": "Fantasy.js",
-    "bytes": 40834,
-    "sha256": "603b1852a343eabdfdb478b203c2d12c1966e93dc4cebaaab6c41663f58bb632",
+    "bytes": 41067,
+    "sha256": "29d21ca0e1bc82bf063f698e2087736095ca76c574b9859d18f040939ae83402",
     "sanitized": false
   },
   {
@@ -157,20 +163,20 @@
   },
   {
     "file": "ImportPages.js",
-    "bytes": 13637,
-    "sha256": "d1905f37cc8bc5e737ff9f0ec56407dedb5ae42012716f2f4e24d32aa9c47569",
+    "bytes": 13675,
+    "sha256": "0c8317444f17c7db1d72bca44b11a8faf150c43e078dda677a66353e7e93527c",
     "sanitized": false
   },
   {
     "file": "ImportRoster.js",
-    "bytes": 39515,
-    "sha256": "25bad6e7de2ba27ab20d7b43e16e28b4381f6b5a6164d52f5f543dfa3d6f477d",
+    "bytes": 40085,
+    "sha256": "4137acc9e74bd78a0cafb1ca6936a9166d2da29ea000327c860592ea99c23184",
     "sanitized": false
   },
   {
     "file": "Index.html",
-    "bytes": 487081,
-    "sha256": "5ad9fc21f90051ba9ccf541f31811a04f443833d58c70e2d045698f83d302c06",
+    "bytes": 487414,
+    "sha256": "6c96ec4fcc9bc0b6dacc2c914e129c82223c3dab888c9bf38d7c72a183cf45c1",
     "sanitized": true
   },
   {
@@ -193,14 +199,14 @@
   },
   {
     "file": "Plays.js",
-    "bytes": 40175,
-    "sha256": "cb1af8384edd7554bdd4e16e84b77c3e38eba8831dab327182dfe4be0799bf5e",
+    "bytes": 40242,
+    "sha256": "818623583674faca917b8e9e7b1b84dec457923bd7c7f822a380b0337629fc47",
     "sanitized": true
   },
   {
     "file": "Policies.js",
-    "bytes": 28551,
-    "sha256": "4839598ce58dfba0c640230655ef0d38cb618529a473f0c8a37c8236418fa6f2",
+    "bytes": 32799,
+    "sha256": "ff1ed08d52abcaf36f29cffc69153095d18add1776483c7e7c487084f0683776",
     "sanitized": true
   },
   {
@@ -211,8 +217,8 @@
   },
   {
     "file": "Portal.html",
-    "bytes": 301319,
-    "sha256": "fef62a0ebd201c98d14da89e0f7da18829c5011eda202cf5eb4af90de8a22a75",
+    "bytes": 306120,
+    "sha256": "32424d10afc04e5c8f0b5cc27743f758acf5109d69d6c7b766d5cc5360b06e09",
     "sanitized": true
   },
   {
@@ -223,8 +229,8 @@
   },
   {
     "file": "Profile.js",
-    "bytes": 54030,
-    "sha256": "ed94ad2b82676afa715153cdc4f9cbea62912b17bb70b664e7f465382f40dc41",
+    "bytes": 54781,
+    "sha256": "a97089e381cb536d22c40d30a2808be944297623ad34d31a61cdf5dc1d7427c6",
     "sanitized": true
   },
   {
@@ -235,20 +241,20 @@
   },
   {
     "file": "ResolveStats.js",
-    "bytes": 15565,
-    "sha256": "673f95593d664eca7f41c1554e19ed330b9eeed10760b8cc95cb2a7752e6ef3e",
+    "bytes": 15579,
+    "sha256": "181957a9496d5136fa8ab2702f53ad43bf7cad464250499408bf9baed4c564dd",
     "sanitized": false
   },
   {
     "file": "Roster.js",
-    "bytes": 21042,
-    "sha256": "0e846797949275312f77d253f03bc1dad1bc71e2753b98a6bd90cb10ed3043a5",
+    "bytes": 21207,
+    "sha256": "da6b7bb9aae308ee29ea6dbe443cf7e0da9638134291b77c851e4f89b5dfc524",
     "sanitized": false
   },
   {
     "file": "Schema.js",
-    "bytes": 15363,
-    "sha256": "266965f7477549b32b1a2a49d2dbbff605e03db6f4be3efbae29045ae4fffa29",
+    "bytes": 17492,
+    "sha256": "2fccf2cced76cb289f99f347406dd438b1193f46128a5d4b36b218d6399e25d2",
     "sanitized": false
   },
   {
@@ -265,8 +271,8 @@
   },
   {
     "file": "Stats.js",
-    "bytes": 80007,
-    "sha256": "066c2d1efd1ffb3aa6e624d284d391c06ad68d09d2b2032db4cf1cd6511f95f8",
+    "bytes": 80215,
+    "sha256": "75c7317fc02358b41b4ae965b42e65a42ed77cc8c1eeaa6f13fd7750fc70a27d",
     "sanitized": false
   },
   {
@@ -277,20 +283,32 @@
   },
   {
     "file": "StatsExtract.js",
-    "bytes": 20184,
-    "sha256": "ce34c699db905ce312bf3d89fe89c3d44712d1c7d7a64ac02beca60f586354ba",
+    "bytes": 20699,
+    "sha256": "33c1ceb6f910d7c1585822fdc44ab3e92561efa14d9a849a2470fba49409ee41",
     "sanitized": false
   },
   {
     "file": "StatsImport.js",
-    "bytes": 22038,
-    "sha256": "978dc4d228e332accf80cdf3488dd05a26eb19f58fbcf4ddd6a636a8785d5003",
+    "bytes": 22564,
+    "sha256": "3a545259f9f6f6c6d0be2702dfd11dd785a675ccc18118fc1bda3513d64b75b0",
+    "sanitized": false
+  },
+  {
+    "file": "StatsImportQueue.js",
+    "bytes": 32562,
+    "sha256": "00171d4e323598750822e7d7ab41ac8c3600171dd3ee314f069b1533d392cb11",
+    "sanitized": true
+  },
+  {
+    "file": "StatsReconcile.js",
+    "bytes": 6141,
+    "sha256": "2770ba31a3ee8fbeccf2a049812d6b0068cedb278ad90af51b11d8a0bdf5b422",
     "sanitized": false
   },
   {
     "file": "TeamAdmin.js",
-    "bytes": 99265,
-    "sha256": "5cd3b7fef87819552757248cdb3d5cbabadcb7feb34c317bd7630c18355accbd",
+    "bytes": 98266,
+    "sha256": "cf910756f58c62e7512c36c2418a0dce69f5f2855253f374e09b0d677e2c12cc",
     "sanitized": true
   },
   {
@@ -307,20 +325,20 @@
   },
   {
     "file": "Traffic.js",
-    "bytes": 46456,
-    "sha256": "c42a7d66961d967515c6ca9712c9deb6de2c5d92929446a7282911490aeccb18",
+    "bytes": 46274,
+    "sha256": "fd8c6384248864c8a21450e7a448112ffbe0dce37e748e9dbb348f7d33b9f857",
     "sanitized": true
   },
   {
     "file": "Triggers.js",
-    "bytes": 7302,
-    "sha256": "37babc6aa66af4a988ae09614e26a18f3ae70e14c9f39c06a135c541b9f458c5",
+    "bytes": 7646,
+    "sha256": "34a390912ca8fb98d39e3ebdc471730c80d329ca0d60ea987b2c597e219aad98",
     "sanitized": false
   },
   {
     "file": "WebApps.js",
-    "bytes": 16964,
-    "sha256": "8d49115f14f6c897f3c98f964a948432b268a874259b4bd5f26b22444c8a2986",
+    "bytes": 17228,
+    "sha256": "afd342657df561fa471178fe1e3e4b4545bf9b57d74e8f4236750c1eeddcc5c4",
     "sanitized": false
   },
   {

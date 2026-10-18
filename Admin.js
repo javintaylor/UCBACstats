@@ -290,6 +290,14 @@ function menuAddAdmin() {
  * duplicate — two rows for one person would make access depend on row order.
  */
 function addCoach_(email, teamId, role) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; authRecheckBoundSession_();
+    return addCoachLocked_(email, teamId, role);
+  } finally {lock.releaseLock();}
+}
+function addCoachLocked_(email, teamId, role) {
   email = String(email || '').toLowerCase().trim();
   if (!email || email.indexOf('@') < 0) throw new Error('A valid email is required.');
   role = String(role || 'COACH').toUpperCase();
@@ -327,6 +335,14 @@ function addCoach_(email, teamId, role) {
 }
 
 function removeCoach_(email) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; authRecheckBoundSession_();
+    return removeCoachLocked_(email);
+  } finally {lock.releaseLock();}
+}
+function removeCoachLocked_(email) {
   email = String(email || '').toLowerCase().trim();
   const sh = getTab_('Coaches');
   const data = sh.getDataRange().getValues();

@@ -34,7 +34,7 @@
  * page reads, so a fantasy total and a stat line can never disagree.
  */
 
-const FANTASY_CACHE_PREFIX = 'fant2:';    // bump the digit to invalidate every key
+const FANTASY_CACHE_PREFIX = 'fant3:';    // bump the digit to invalidate every key
 const FANTASY_CACHE_TTL    = 120;
 const FANTASY_LIMIT        = 50;
 const FANTASY_MAX_LIMIT    = 75;
@@ -82,6 +82,8 @@ const FANTASY_SIDE_LABEL = { OFFENSE: 'Offense', DEFENSE: 'Defense', SPECIAL: 'S
  * them off as canon.
  */
 const FANTASY_RULES = [
+  // Scorer only: conversion plays never enter ordinary offensive totals.
+  { key: 'TwoPointConversions', label: 'Two-point Conversion', short: '2PT', side: 'OFFENSE', group: 'Conversions', fields: ['TwoPointConversions'], pts: 2 },
   // ── passing
   { key: 'PassYds',      label: 'Passing Yards',        short: 'PASS YDS', side: 'OFFENSE', group: 'Passing',   fields: ['PassYds'],      pts: 1,   per: 25 },
   { key: 'PassTD',       label: 'Passing Touchdown',    short: 'PASS TD',  side: 'OFFENSE', group: 'Passing',   fields: ['PassTD'],       pts: 4 },

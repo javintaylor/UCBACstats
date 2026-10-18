@@ -88,6 +88,7 @@ const AUTH = {
  */
 var __AUTH_EMAIL = '';
 var __AUTH_BOUND = false;
+var __AUTH_TOKEN = '';
 
 function authEmail_() {
   if (__AUTH_BOUND) return __AUTH_EMAIL;
@@ -105,13 +106,21 @@ function authEmail_() {
  */
 function withSession_(token, fn, options) {
   options = options || {};
+  __AUTH_TOKEN = String(token || '');
   __AUTH_EMAIL = authSessionEmail_(token, !!options.fresh);
   __AUTH_BOUND = true;
   try {
     if (__AUTH_EMAIL && !options.allowIncomplete) policyRequireCurrent_();
     return fn();
   }
-  finally { __AUTH_EMAIL = ''; __AUTH_BOUND = false; }
+  finally { __AUTH_EMAIL = ''; __AUTH_BOUND = false; __AUTH_TOKEN = ''; }
+}
+
+/** Revalidate a bound portal session after acquiring an account write lock. */
+function authRecheckBoundSession_() {
+  if (!__AUTH_BOUND) return; // editor/menu uses the current Google identity
+  if (!__AUTH_EMAIL || (__AUTH_TOKEN && authSessionEmail_(__AUTH_TOKEN,true)!==__AUTH_EMAIL))
+    throw new Error('Your session ended. Sign in again.');
 }
 
 // ── primitives ──────────────────────────────────────────────────────────────
@@ -157,6 +166,7 @@ function ensureSessionsTab_() {
  * five-minute trigger, and a person is sitting at the form right now.
  */
 function apiRequestLoginCode_(email) {
+  const requestedAt = Date.now();
   const addr = authMailable_(email);
   const sent = 'If that address can sign in, a code is on its way. It works for ten ' +
                'minutes. Not in your inbox? Check your spam or junk folder.';
@@ -170,7 +180,7 @@ function apiRequestLoginCode_(email) {
   authAssertMailQuota_();
 
   const code = authNewCode_();
-  cache.put('lc:' + addr, authHash_(code), AUTH.CODE_TTL_SECONDS);
+  cache.put('lc:' + addr, JSON.stringify({hash:authHash_(code),requestedAt:requestedAt}), AUTH.CODE_TTL_SECONDS);
   cache.put('lc-n:' + addr, '0', AUTH.CODE_TTL_SECONDS);
   cache.put('lc-cool:' + addr, '1', AUTH.REQUEST_COOLDOWN_SECONDS);
 
@@ -308,7 +318,7 @@ function adminMintLoginCode_(email) {
   if (!addr) throw new Error('"' + email + '" is not an email address.');
   const code = authNewCode_();
   const cache = CacheService.getScriptCache();
-  cache.put('lc:' + addr, authHash_(code), AUTH.CODE_TTL_SECONDS);
+  cache.put('lc:' + addr, JSON.stringify({hash:authHash_(code),requestedAt:requestedAt}), AUTH.CODE_TTL_SECONDS);
   cache.put('lc-n:' + addr, '0', AUTH.CODE_TTL_SECONDS);
   return { email: addr, code: code, minutes: Math.round(AUTH.CODE_TTL_SECONDS / 60) };
 }
@@ -440,6 +450,7 @@ function apiRegisterStart_(p) {
   const email = authMailable_(p && p.email);
   if (!email) throw new Error('That is not an email address.');
   reg.email = email;
+  reg.registrationStartedAt = Date.now(); // server-owned; old queued consent cannot cross closure
 
   CacheService.getScriptCache().put('reg:' + email, JSON.stringify(reg), 1800);
   const sent = apiRequestLoginCode_(email);
@@ -456,12 +467,14 @@ function apiRegisterFinalize_(p) {
   if (!email) throw new Error('Sign in first.');
   const reg = authValidateRegistration_(p);
   reg.email = email;
+  reg.registrationStartedAt = Date.now(); // server-owned; old queued consent cannot cross closure
   return authFinalizeRegistration_(reg);
 }
 
 // ── step two: redeem it ─────────────────────────────────────────────────────
 
 function apiRedeemLoginCode_(email, code) {
+  const loginStartedAt = Date.now();
   const addr = authMailable_(email);
   if (!addr) throw new Error('That is not an email address.');
   const cache = CacheService.getScriptCache();
@@ -470,6 +483,12 @@ function apiRedeemLoginCode_(email, code) {
   if (!want)
     throw new Error('That code has expired or was never sent. Request a new one.');
 
+  var issued = {hash:want,requestedAt:0};
+  try { if (want.charAt(0)==='{') issued=JSON.parse(want); } catch(e) { throw new Error('Request a new sign-in code.'); }
+  const retired = policyRelease_(addr);
+  if (retired && (!Number.isFinite(issued.requestedAt) || issued.requestedAt<=new Date(retired.ReleasedAt).getTime()))
+    throw new Error('This code predates account closure. Request a new sign-in code.');
+
   const tries = parseInt(cache.get('lc-n:' + addr) || '0', 10) + 1;
   if (tries > AUTH.CODE_MAX_ATTEMPTS) {
     cache.remove('lc:' + addr);
@@ -477,7 +496,7 @@ function apiRedeemLoginCode_(email, code) {
   }
   cache.put('lc-n:' + addr, String(tries), AUTH.CODE_TTL_SECONDS);
 
-  if (authHash_(String(code || '').replace(/\D/g, '')) !== want)
+  if (authHash_(String(code || '').replace(/\D/g, '')) !== issued.hash)
     throw new Error('That is not the code. ' +
                     (AUTH.CODE_MAX_ATTEMPTS - tries) + ' attempt(s) left.');
 
@@ -505,10 +524,16 @@ function apiRedeemLoginCode_(email, code) {
   ensureSessionsTab_();
   const token = authNewToken_();
   const now = new Date();
-  appendRows_(AUTH.TAB, [{
-    SessionHash: authHash_(token), Email: addr, CreatedAt: now, LastSeenAt: now,
-    ExpiresAt: new Date(now.getTime() + AUTH.SESSION_DAYS * 86400000), RevokedAt: ''
-  }]);
+  const loginLock=LockService.getScriptLock();
+  if(!loginLock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Request a new sign-in code.');
+  try {
+    __tableCache={};
+    if(!policyAfterRelease_(addr,loginStartedAt)) throw new Error('Account closure occurred during sign-in. Request a new sign-in code.');
+    appendRows_(AUTH.TAB, [{
+      SessionHash: authHash_(token), Email: addr, CreatedAt: now, LastSeenAt: now,
+      ExpiresAt: new Date(now.getTime() + AUTH.SESSION_DAYS * 86400000), RevokedAt: ''
+    }]);
+  } finally {loginLock.releaseLock();}
   if (AUTH.PRUNE_ON_LOGIN) authPruneSessions_();
 
   // the state is computed AS the new session so one round trip signs in
@@ -528,10 +553,12 @@ function authSessionEmail_(token, fresh) {
   const cache = CacheService.getScriptCache();
   const hit = fresh ? null : cache.get('sess:' + h);
   if (hit === '!') return '';
-  if (hit) return hit;
+  // A durable release defeats a late cache write from an execution that began before closure.
+  if (hit && !policyRelease_(hit)) return hit;
 
   if (!hasTab_(AUTH.TAB)) return '';
   const now = new Date();
+  if (fresh || hit) delete __tableCache[AUTH.TAB];
   const rows = rowsOf_(AUTH.TAB);
   for (var i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -539,7 +566,9 @@ function authSessionEmail_(token, fresh) {
     if (r.RevokedAt) return '';
     const expiry = r.ExpiresAt instanceof Date ? r.ExpiresAt.getTime() : Date.parse(String(r.ExpiresAt || ''));
     if (!Number.isFinite(expiry) || expiry <= now.getTime()) return '';
-    const email = String(r.Email || '').toLowerCase();
+    const email = String(r.Email || '').trim().toLowerCase();
+    const release=policyRelease_(email);
+    if(release && (!isFinite(new Date(r.CreatedAt).getTime()) || new Date(r.CreatedAt).getTime()<=new Date(release.ReleasedAt).getTime())) return '';
     cache.put('sess:' + h, email, 600);
     // touched at most daily — a timestamp per call would write on every read
     if (!(r.LastSeenAt instanceof Date) || now.getTime() - r.LastSeenAt.getTime() > 86400000) {
@@ -590,3 +619,4 @@ function authPruneSessions_() {
     return dead.length;
   } catch (e) { return 0; }
 }
+

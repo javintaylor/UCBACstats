@@ -159,7 +159,10 @@ function irProfileAuthors_() {
       const action = String(a.Action || '').trim();
       if (action !== 'PROFILE_EDIT' && action !== 'PROFILE_RENAME') return;
       const id = String(a.EntityID || '').trim();
-      if (id) people[id] = true;
+      if (id) {
+        people[id] = true;
+        people[m15Canonical_(id, String(a.EntityType || '').trim() === 'PlayerSeason')] = true;
+      }
     });
   }
   // A registered account is a person too, even one who has typed nothing yet.
@@ -203,7 +206,10 @@ function irProtectedFields_() {
     if (String(a.Action || '').trim() !== 'PROFILE_EDIT') return;
     const id = String(a.EntityID || '').trim();
     const field = String(a.Field || '').trim();
-    if (id && field) held[id + '|' + field] = true;
+    if (id && field) {
+      held[id + '|' + field] = true;
+      held[m15Canonical_(id, String(a.EntityType || '').trim() === 'PlayerSeason') + '|' + field] = true;
+    }
   });
   return held;
 }
@@ -367,6 +373,12 @@ function importRosterRun_(apply) {
     const k = irNorm_(p.DisplayName);
     if (!k) return;
     (byNorm[k] = byNorm[k] || []).push(p);
+  });
+  // Approved archived spellings join only the name index, never live profiles.
+  m15NameRows_(players).slice(players.length).forEach(function(p) {
+    const key = irNorm_(p.DisplayName);
+    if (key && !(byNorm[key] || []).some(function(x) { return x.PlayerID === p.PlayerID; }))
+      (byNorm[key] = byNorm[key] || []).push(p);
   });
   const seatRows = rowsOf_(CONFIG.TABS.PLAYER_SEASONS);
   const seatByPid = {};              // pid -> this-season seat row

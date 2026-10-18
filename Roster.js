@@ -159,6 +159,8 @@ function apiSaveRoster_(teamId, seasonId, edits) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     const sh = getTab_(CONFIG.TABS.PLAYER_SEASONS);
     const data = sh.getDataRange().getValues();
     const head = data[0].map(String);
@@ -324,6 +326,8 @@ function apiDeletePlayers_(teamId, seasonId, playerSeasonIds) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     const sh = getTab_(CONFIG.TABS.PLAYER_SEASONS);
     const data = sh.getDataRange().getValues();
     const head = data[0].map(String);
@@ -470,6 +474,8 @@ function apiAddPlayer_(teamId, seasonId, player) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // allocate inside our own lock; nextId() would take the lock again and hang
     const playerId = nextPlayerIdLocked_();
     appendRows_(CONFIG.TABS.PLAYERS, [{

@@ -1,31 +1,19 @@
 # UCBACstats source mirror
 
-UCBACstats.com uses Google Sites and Google Apps Script, backed by Google Sheets. This repository is a sanitized code mirror for review and collaboration; Apps Script is the source authority. GitHub does not host or deploy the live portal.
+Sanitized source-only mirror refreshed October 18, 2026 using existing authorized read-only clasp access. Apps Script is the source authority; GitHub does not host or deploy the live portal.
 
-## Source coverage and provenance
+Fresh deployment metadata independently verified the live website as version 238. Separate current-editor and immutable-v238 captures each contain 63 files and were byte-identical. The mirror includes 58 files from each capture; five record-bound one-off utilities are deliberately omitted under owner approval because they embed private player records:
 
-Read-only `clasp clone` captures made October 10, 2026 using the owner's existing authorization:
+- PlayerMerge20261015.js
+- PlayerMergeSecond20261015.js
+- PlayerMergeThird20261015.js
+- MergeActivation20261015.js
+- BohemiaReview20261017.js
 
-- Root `.js` / `.html` files and `appsscript.json` (also `src/` in source-mirror.zip): current editor source, 55 files (including Apps Script manifest).
-- `snapshots/v221/` inside source-mirror.zip: immutable Apps Script version 221, 53 files. The production deployment was verified as version 221 during the same day's investigation.
-- Editor adds DailySummaryAppAdapter.js and DailySummaryAppRuntime.js. Advertising.js, AppPublicRefreshAdapter.js and appsscript.json differ from v221. Do not treat editor HEAD as deployed production.
-- Each packaged directory's manifest.json lists file coverage, byte counts, SHA-256 hashes of sanitized files and whether sanitization changed the file.
+Original private captures are preserved locally. Omission is a privacy coverage limit, not deletion from Apps Script or a claim that those tools do not exist. Root source and manifest.json represent the sanitized editor files. source-mirror.zip contains src/, snapshots/v238/, the prior immutable snapshots/v221/ and tools/. SOURCE-SNAPSHOT.txt is a text companion of the sanitized editor files.
 
-Production IDs, folder IDs, email contacts, coach seed contacts, historical player merge/cleanup datasets and player-specific comments are removed or replaced. All executable source files remain represented. Empty private dataset arrays deliberately disable those historical operations in this mirror. Secrets are retrieved by production code from Script Properties; no property values, database exports, account records, birthdays, sessions or credentials were collected. This is not a deployable production configuration.
+Historical contact and player correction/merge arrays in retained source are emptied, operational resource/contact/deployment literals replaced, and personal-record commentary removed. No script-property values, credentials, account/player exports or private captured files are included. This is not deployable production configuration; omitted utilities and placeholders prevent treating it as a complete runtime clone. Google Sites content/configuration is outside capture scope.
 
-The Google Sites page configuration/content is not included: this capture covers its Apps Script backend and HTML frontend, including embedded assets. Site ownership and page editing remain in Google Sites.
+Manual workflow: capture fresh editor and separately verified deployment into new private directories; apply reviewed sanitization and explicit exclusions; review every diff and inventory; verify manifest hashes and offline syntax; publish through a reviewed branch/PR; re-read exact remote bytes and deliver a bounded factual checkpoint to Claude UCBACstats Canonical. Updates are manual, not automatic synchronization.
 
-## Repeatable update workflow
-
-1. Use an existing authorized `clasp` installation. Do not add credentials or expand OAuth permissions without owner approval.
-2. Capture into a new private directory outside this checkout: `clasp -P . clone "$UCBAC_SCRIPT_ID"`. Use the locally supplied production script ID, never the backup-bound script (it also uses the production database).
-3. Determine the live deployment version read-only (`clasp deployments` / Apps Script Manage deployments). Capture that exact version separately: `clasp -P . clone "$UCBAC_SCRIPT_ID" "$LIVE_VERSION"` in another new directory.
-4. Run `python3 prepare_snapshot.py /absolute/private/editor-capture /absolute/staging/src` and again for the deployed version into staging `snapshots/vNNN`. It only reads local captures and writes sanitized local output. It does not upload or deploy.
-5. Review EVERY staged source change before copying to this checkout. The sanitizer is a starting point, not a proof of safety: newly embedded datasets or new secret formats require manual removal. Check emails, DOB values, account/player fixtures, tokens, private IDs, URLs with credentials and large hardcoded arrays. Keep private captures outside Git and never upload them.
-6. Compare inventories/hashes, update this provenance section, replace the root source files with the reviewed staging `src/` snapshot, and retain immutable version snapshots. Review `git diff --stat`, `git diff`, and `git status --short`; run syntax checks with `node --check` on JavaScript files. No application functions should be executed against production.
-7. Commit the reviewed files and push normally to this repository using existing authorized access. Fetch remote HEAD and verify commit SHA plus file coverage. If remote work changed concurrently, preserve it and reconcile before pushing. Never force-push.
-8. Give the exact Claude UCBACstats (DOT) session the new commit link and ask it to fetch that commit and verify manifest counts. A private link alone does not demonstrate access.
-
-No automatic synchronization or production deployment is configured. Repeat this process after every approved Apps Script change to prevent drift. Never run `clasp push`, version creation, deployment commands, or database functions as part of mirror updates.
-
-The source-mirror.zip package preserves the full directory structure, tooling and both versions. Root manifest.json describes the editor files. SOURCE-SNAPSHOT.txt is the current editor code as a single text attachment for Claude.
+No Apps Script push, version creation, deployment, operational function, hosted test or production data change is part of source refresh. See UPDATE-WORKFLOW.txt.

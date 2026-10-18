@@ -18,3 +18,5 @@ Repeat after each approved Apps Script change:
 8. Deliver the source TXT and commit link only to Claude UCBACstats Canonical (DOT), https://claude.ai/code/session_01HDDkBSXaMp2y2CWGnmcA1u. Ask for a read-only code fact and manifest count to verify actual source access. Do not authorize production, database or account edits.
 
 This is an on-demand repeatable workflow, not a configured background sync. No Apps Script push, version creation or deployment is part of this workflow.
+
+October 18 approved privacy scope: omit the five one-off utilities listed in README from BOTH editor and v238 mirror captures. Preserve private originals; do not publish embedded player records. Fresh live metadata is v238, 63 captured/58 mirrored each; editor and deployed bytes matched. Retain historical v221 snapshot. Use new review branch and PR, check remote main immediately before merge, never force-push.

@@ -35,7 +35,7 @@ const STATSIMPORT = {
            'Rec', 'RecYds', 'RecTD', 'RecFum', 'Pancakes',
            'TackleSolo', 'TackleAssist', 'TFL', 'Sacks', 'Int', 'FF', 'FR', 'PassDef', 'DefTD',
            'FGM', 'FGA', 'XPM', 'XPA', 'Punts', 'PuntYds', 'KR', 'KRYds', 'PR', 'PRYds',
-           'Blocks'],
+           'Blocks', 'BlockedPunts', 'TwoPointConversions'],
   OUT: ['Result', 'Note'],
   // an administrator's import is the official line
   SOURCE: 'COACH_ENTRY',
@@ -53,7 +53,11 @@ const STATSIMPORT = {
   }
 };
 
-function siHeader_() { return STATSIMPORT.KEYS.concat(STATSIMPORT.FIELDS, STATSIMPORT.OUT); }
+function siHeader_() {
+  return STATSIMPORT.KEYS.concat(STATSIMPORT.FIELDS.filter(function (f) {
+    return f !== 'BlockedPunts' && f !== 'TwoPointConversions';
+  }), STATSIMPORT.OUT, ['BlockedPunts', 'TwoPointConversions']);
+}
 
 /** letters and digits only, lower case: "Ke'Mar Parsons" and "kemar parsons" agree */
 function siNorm_(v) { return String(v === null || v === undefined ? '' : v).toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -79,6 +83,12 @@ function siEnsureTab_() {
 function siAppend_(rows) {
   if (!rows || !rows.length) return 0;
   siEnsureTab_();
+  const head = tabHeader_(STATSIMPORT.TAB);
+  ['BlockedPunts', 'TwoPointConversions'].forEach(function (f) {
+    if (head.indexOf(f) < 0 && rows.some(function (r) {
+      return r[f] !== undefined && r[f] !== null && r[f] !== '';
+    })) throw new Error('StatsImport has no ' + f + ' column. Run the approved schema migration before importing this field.');
+  });
   return appendRows_(STATSIMPORT.TAB, rows);
 }
 
@@ -238,8 +248,9 @@ function siLines_(row, playerId) {
       if (STATSIMPORT.FIELDS.indexOf(f) < 0) return;
       const v = row[f];
       if (v === '' || v === null || v === undefined) return;
-      const n = numOrNull_(v);
-      if (n === null) { bad = bad || (f + ' "' + v + '" is not a number'); return; }
+      var n;
+      try { n = teamAdminStat_(f, v); }
+      catch (e) { bad = bad || e.message; return; }
       line[f] = n; any = true;
     });
     if (any) out.push(line);

@@ -35,7 +35,7 @@ const ACCT = {
   NOTIFY_COLS: ['NotificationID', 'ToEmail', 'Kind', 'Subject', 'Body', 'EntityType',
                 'EntityID', 'TeamID', 'CreatedAt', 'SentAt', 'Status'],
   ROLES: ['PLAYER', 'COACH', 'ADMIN', 'FAN'],
-  STATUSES: ['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED'],
+  STATUSES: ['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED', 'CLOSED'],
 };
 
 // ── identity ───────────────────────────────────────────────────────────────
@@ -43,7 +43,8 @@ const ACCT = {
 /** Every Accounts row, or none at all when the tab has not been created yet. */
 function acctRows_() {
   if (!hasTab_(ACCT.TAB)) return [];
-  return rowsOf_(ACCT.TAB);
+  // CLOSED rows retain immutable identity/history but never grant or reuse a current account.
+  return rowsOf_(ACCT.TAB).filter(function(r) { return s_(r.Status).toUpperCase() !== 'CLOSED'; });
 }
 
 /**
@@ -159,7 +160,7 @@ function apiAuthState_() {
      showed only half the queue would let the other half sit unread while the
      tab said there was nothing to do. */
   var pendingCorrections = acctPendingCorrections_(me);
-  var pendingStats = (typeof taPendingStatCount_ === 'function') ? taPendingStatCount_(me) : 0;
+  var pendingStats = 0; // Player-reported stats are visible immediately, not approval work.
 
   return {
     email: me.email,
@@ -447,7 +448,8 @@ function apiRegister_(payload) {
 
   try {
     // another execution may have written since this one first read the tab
-    delete __tableCache[ACCT.TAB];
+    __tableCache = {};
+    authRecheckBoundSession_();
     acctAssertHeaders_(ACCT.TAB, ACCT.COLS);
 
     const me = { email: email, role: 'PUBLIC' };
@@ -546,10 +548,13 @@ function acctFinalizeRegistration_(reg) {
     throw new Error('Another registration is in progress. Try again in a moment.');
 
   try {
-    delete __tableCache[ACCT.TAB];
+    __tableCache = {};
+    authRecheckBoundSession_();
     acctAssertHeaders_(ACCT.TAB, ACCT.COLS);
     const me = { email: email, role: 'PUBLIC' };
     const existing = acctFind_(email);
+    // Recheck after acquiring the account write lock: another registration may have won.
+    policyCheckRegistrationDob_(reg);
 
     if (existing && acctStatusOf_(existing) === 'ACTIVE')
       return { status: 'ACTIVE', message: 'This address already has an active account — ' +
@@ -751,8 +756,10 @@ function acctLinkSecret_() {
 }
 
 function acctLinkSig_(accountId, decision) {
+  const row=acctRows_().filter(function(r){return s_(r.AccountID)===s_(accountId);})[0];
+  const epoch=closureReviewEpoch_(row ? s_(row.RequestedTeamID || row.TeamID) : '');
   return authHash_(acctLinkSecret_() + '|' + s_(accountId) + '|' +
-                  String(decision).toLowerCase()).slice(0, 32);
+                  String(decision).toLowerCase() + (epoch ? '|closed-grant:'+epoch : '')).slice(0, 32);
 }
 
 
@@ -926,7 +933,7 @@ function apiDecideByLink_(accountId, decision, sig) {
     throw new Error('This link is not valid.');
   if (!accountId || s_(sig) !== acctLinkSig_(accountId, decision))
     throw new Error('This link is not valid.');
-  return acctDecide_({ email: 'email-link', role: 'ADMIN', teamId: '' },
+  return acctDecide_({ email: 'email-link', role: 'ADMIN', teamId: '', decisionSig:sig, decision:decision },
                     accountId, decision === 'approve',
                     'decided from the request email');
 }
@@ -941,7 +948,10 @@ function acctDecide_(me, accountId, approve, note) {
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
 
   try {
-    delete __tableCache[ACCT.TAB];
+    __tableCache = {};
+    authRecheckBoundSession_();
+    if(me.email==='email-link' && s_(me.decisionSig)!==acctLinkSig_(accountId,me.decision))
+      throw new Error('This review link expired after an account closure. Use Approvals in the portal.');
     acctAssertHeaders_(ACCT.TAB, ACCT.COLS);
 
     var row = null;
@@ -1069,3 +1079,4 @@ function acctDecide_(me, accountId, approve, note) {
     lock.releaseLock();
   }
 }
+

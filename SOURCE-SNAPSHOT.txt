@@ -1,4 +1,27 @@
-===== src/API.js =====
+UCBACstats sanitized source — October 18, 2026 — editor and verified v238; 63 captured / 58 included. Five exclusions documented in README. Source mirror only; no deployment.
+
+# UCBACstats source mirror
+
+Sanitized source-only mirror refreshed October 18, 2026 using existing authorized read-only clasp access. Apps Script is the source authority; GitHub does not host or deploy the live portal.
+
+Fresh deployment metadata independently verified the live website as version 238. Separate current-editor and immutable-v238 captures each contain 63 files and were byte-identical. The mirror includes 58 files from each capture; five record-bound one-off utilities are deliberately omitted under owner approval because they embed private player records:
+
+- PlayerMerge20261015.js
+- PlayerMergeSecond20261015.js
+- PlayerMergeThird20261015.js
+- MergeActivation20261015.js
+- BohemiaReview20261017.js
+
+Original private captures are preserved locally. Omission is a privacy coverage limit, not deletion from Apps Script or a claim that those tools do not exist. Root source and manifest.json represent the sanitized editor files. source-mirror.zip contains src/, snapshots/v238/, the prior immutable snapshots/v221/ and tools/. SOURCE-SNAPSHOT.txt is a text companion of the sanitized editor files.
+
+Historical contact and player correction/merge arrays in retained source are emptied, operational resource/contact/deployment literals replaced, and personal-record commentary removed. No script-property values, credentials, account/player exports or private captured files are included. This is not deployable production configuration; omitted utilities and placeholders prevent treating it as a complete runtime clone. Google Sites content/configuration is outside capture scope.
+
+Manual workflow: capture fresh editor and separately verified deployment into new private directories; apply reviewed sanitization and explicit exclusions; review every diff and inventory; verify manifest hashes and offline syntax; publish through a reviewed branch/PR; re-read exact remote bytes and deliver a bounded factual checkpoint to Claude UCBACstats Canonical. Updates are manual, not automatic synchronization.
+
+No Apps Script push, version creation, deployment, operational function, hosted test or production data change is part of source refresh. See UPDATE-WORKFLOW.txt.
+
+
+===== API.js =====
 /**
  * UCBAC Stats — Api.gs
  * Read layer. Every function returns a plain object the frontend can render.
@@ -778,6 +801,7 @@ function apiGame_(gameId) {
       rec: num_(r.Rec), recYds: num_(r.RecYds), recTD: num_(r.RecTD),
       solo: num_(r.TackleSolo), asst: num_(r.TackleAssist), tfl: num_(r.TFL),
       sacks: num_(r.Sacks), int: num_(r.Int),
+      blockedPunts: num_(r.BlockedPunts), twoPointConversions: num_(r.TwoPointConversions),
       // player-entered and not yet approved: the site renders it grey
       prov: provisionalSource_(r.SourceType)
     });
@@ -1020,6 +1044,7 @@ function buildPublicTeam_(teamId, seasonId) {
 // ───────────────────────────────── player
 
 function apiPlayer_(playerId) {
+  playerId = m15Canonical_(playerId);
   const p = rowsOf_(CONFIG.TABS.PLAYERS).filter(function (x) { return s_(x.PlayerID) === playerId; })[0];
   if (!p) return null;
 
@@ -1595,7 +1620,222 @@ function apiTeamDefenseBoards_(seasonId, teams, TOP) {
 }
 
 
-===== src/Accounts.js =====
+===== AccountClosure.js =====
+/** Administrator-only, non-destructive account closure. No row deletion or email. */
+const ACCOUNT_CLOSURE = {
+  TAB:'AccountClosures', TTL:300,
+  COLS:['ClosureID','AccountID','Email','ClosedAt','ClosedBy','Reason','PriorStatus',
+        'AccountDigest','CoachSnapshot','SessionRows','ReleaseID']
+};
+function closureEmail_(v) { return String(v || '').trim().toLowerCase(); }
+function closureRows_() { return hasTab_(ACCOUNT_CLOSURE.TAB) ? rowsOf_(ACCOUNT_CLOSURE.TAB) : []; }
+function closureAdmin_() {
+  authRecheckBoundSession_();
+  const me=accountsWhoami_();
+  if (!me.email || me.role !== 'ADMIN') throw new Error('Administrator only.');
+  return me;
+}
+function closureAccount_(target) {
+  target=s_(target);
+  const email=closureEmail_(target), rows=hasTab_(ACCT.TAB) ? rowsOf_(ACCT.TAB) : [];
+  const byId=rows.filter(function(r){return s_(r.AccountID) === target;});
+  if (byId.length > 1) throw new Error('Duplicate account ID. Resolve it before closing an account.');
+  if (byId.length) return byId[0];
+  const live=rows.filter(function(r){return closureEmail_(r.Email)===email && acctStatusOf_(r)!=='CLOSED';});
+  if (live.length > 1) throw new Error('Duplicate current accounts. Resolve them before closing an account.');
+  if (live.length) return live[0];
+  const old=rows.filter(function(r){return closureEmail_(r.Email)===email && acctStatusOf_(r)==='CLOSED';});
+  if (old.length) throw new Error('Only closed accounts found. Review one using its original account ID.');
+  throw new Error('No account found. Enter the exact email or account ID.');
+}
+function closureAdminEmails_() {
+  const out={};
+  acctRows_().forEach(function(r){if(acctStatusOf_(r)==='ACTIVE' && s_(r.Role).toUpperCase()==='ADMIN') out[closureEmail_(r.Email)]=true;});
+  if(hasTab_('Coaches')) rowsOf_('Coaches').forEach(function(r){
+    if(String(r.Active).toUpperCase()!=='FALSE' && s_(r.Role).toUpperCase()==='ADMIN') out[closureEmail_(r.Email)]=true;
+  });
+  delete out['']; return Object.keys(out);
+}
+function closureState_(row,me) {
+  const email=closureEmail_(row.Email), id=s_(row.AccountID);
+  if(!authMailable_(email)||!id) throw new Error('The account has no valid identity. Resolve it before closure.');
+  if(email===closureEmail_(me.email)) throw new Error('You cannot close your own account.');
+  const duplicates=acctRows_().filter(function(r){return closureEmail_(r.Email)===email || s_(r.AccountID)===id;});
+  if(duplicates.length!==1 || duplicates[0].__row!==row.__row) throw new Error('Account identity changed. Review it again.');
+  const admins=closureAdminEmails_();
+  if(admins.indexOf(closureEmail_(me.email))<0) throw new Error('Your administrator grant changed. Sign in again.');
+  if(admins.indexOf(email)>=0 && admins.filter(function(e){return e!==email;}).length===0)
+    throw new Error('The last administrator cannot be closed.');
+  const grants=hasTab_('Coaches') ? rowsOf_('Coaches').filter(function(r){return closureEmail_(r.Email)===email && String(r.Active).toUpperCase()!=='FALSE';}) : [];
+  const sessions=hasTab_(AUTH.TAB) ? rowsOf_(AUTH.TAB).filter(function(r){return closureEmail_(r.Email)===email && !r.RevokedAt;}) : [];
+  const clean=function(r){const x={}; Object.keys(r).sort().forEach(function(k){if(k!=='LastSeenAt')x[k]=r[k];});return x;};
+  const evidence=policyRows_(POLICY.ACK_TAB).filter(function(r){return closureEmail_(r.Email)===email;});
+  const digest=authHash_(JSON.stringify([clean(row),grants.map(clean),sessions.map(clean),evidence,
+    policyRows_('AccountIdentityReleases').filter(function(r){return closureEmail_(r.Email)===email;})]));
+  return {email:email,id:id,grants:grants,sessions:sessions,digest:digest};
+}
+/** Shared emailed decision capabilities expire for affected teams when a reviewer closes.
+ * No secret rotation. An ADMIN closure expires all shared review links; a COACH closure
+ * expires its teams' links. Other authorized reviewers use the portal or a newly issued link.
+ */
+function closureReviewEpoch_(teamId) {
+  const all=hasTab_(ACCT.TAB) ? rowsOf_(ACCT.TAB) : [];
+  const ids=closureRows_().filter(function(record){
+    if(!record.ClosedAt || !record.ClosureID)return false;
+    const row=all.filter(function(r){return s_(r.AccountID)===s_(record.AccountID);})[0];
+    const direct=row && s_(record.PriorStatus).toUpperCase()==='ACTIVE' &&
+      (s_(row.Role).toUpperCase()==='ADMIN' || (s_(row.Role).toUpperCase()==='COACH' && s_(row.TeamID)===teamId));
+    var grants=[];try{grants=JSON.parse(record.CoachSnapshot || '[]');}catch(e){throw new Error('Closure grant history needs administrator review.');}
+    return direct || grants.some(function(g){return s_(g.Role).toUpperCase()==='ADMIN' || (s_(g.Role).toUpperCase()==='COACH' && s_(g.TeamID)===teamId);});
+  }).map(function(r){return s_(r.ClosureID);}).sort();
+  return ids.length ? authHash_(ids.join('|')) : '';
+}
+/** Exact-target review only; never returns DOB, Note, consent documents or session hashes. */
+function apiPrepareAccountClosure_(target) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; const me=closureAdmin_(), row=closureAccount_(target);
+    if(acctStatusOf_(row)==='CLOSED') {
+      const records=closureRows_().filter(function(r){return s_(r.AccountID)===s_(row.AccountID);});
+      const last=records[records.length-1];
+      return {closed:true,accountId:s_(row.AccountID),email:closureEmail_(row.Email),
+        name:s_(row.DisplayName),closedAt:last ? policyDateText_(last.ClosedAt) : '',
+        message:'This account is already closed. Its history is preserved.'};
+    }
+    const state=closureState_(row,me), ticket=Utilities.getUuid();
+    CacheService.getScriptCache().put('account-close:'+ticket,JSON.stringify({
+      actor:closureEmail_(me.email),accountId:state.id,email:state.email,digest:state.digest,
+      expiresAt:Date.now()+ACCOUNT_CLOSURE.TTL*1000
+    }),ACCOUNT_CLOSURE.TTL);
+    const reviewTeams={}; var allReviewTeams=false;
+    state.grants.concat(acctStatusOf_(row)==='ACTIVE' ? [row] : []).forEach(function(g){
+      const role=s_(g.Role).toUpperCase();
+      if(role==='ADMIN')allReviewTeams=true;
+      else if(role==='COACH' && s_(g.TeamID))reviewTeams[s_(g.TeamID)]=true;
+    });
+    const affectedTeams=Object.keys(reviewTeams);
+    const reviewLinkScope=allReviewTeams ? 'all teams' : affectedTeams.map(function(id){
+      return typeof teamNameOf_==='function' ? (teamNameOf_(id)||id) : id;
+    }).join(', ');
+    return {closed:false,ticket:ticket,accountId:state.id,email:state.email,name:s_(row.DisplayName),
+      status:acctStatusOf_(row),role:s_(row.Role || row.RequestedRole),
+      sessions:state.sessions.length,coachGrants:state.grants.length,
+      reviewLinksAffected:allReviewTeams||affectedTeams.length>0,reviewLinkScope:reviewLinkScope,expiresIn:ACCOUNT_CLOSURE.TTL};
+  } finally {lock.releaseLock();}
+}
+/** Build one Sheets batch: all durable changes succeed together, including new ledger headers. */
+function closureBatch_(row,state,me,reason,ticket,now) {
+  const requests=[], sheets=db_().getSheets();
+  let next=sheets.reduce(function(n,sh){return Math.max(n,sh.getSheetId());},0)+1;
+  const cell=function(v){return {userEnteredValue:{stringValue:String(v===undefined||v===null ? '' : v)}};};
+  const plans={};
+  const table=function(name,required,create){
+    if(plans[name])return plans[name];
+    const sh=hasTab_(name) ? getTab_(name) : null;
+    if(!sh&&!create)throw new Error('Missing '+name+' table. Nothing was closed.');
+    const headers=sh ? sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(function(v){return String(v).trim();}) : required;
+    if(required.some(function(h){return headers.indexOf(h)<0;}) || headers.some(function(h,i){return h && headers.indexOf(h)!==i;}))
+      throw new Error('Unexpected '+name+' headers. Nothing was closed.');
+    const id=sh ? sh.getSheetId() : next++;
+    if(!sh){
+      requests.push({addSheet:{properties:{sheetId:id,title:name,gridProperties:{rowCount:1000,columnCount:Math.max(20,headers.length),frozenRowCount:1}}}});
+      requests.push({updateCells:{start:{sheetId:id,rowIndex:0,columnIndex:0},rows:[{values:headers.map(cell)}],fields:'userEnteredValue'}});
+    }
+    return plans[name]={id:id,headers:headers};
+  };
+  const set=function(name,fields,r,field,value){
+    const t=table(name,fields,false), col=t.headers.indexOf(field);
+    requests.push({updateCells:{start:{sheetId:t.id,rowIndex:r-1,columnIndex:col},rows:[{values:[cell(value)]}],fields:'userEnteredValue'}});
+  };
+  const append=function(name,fields,value,create){
+    const t=table(name,fields,create);
+    requests.push({appendCells:{sheetId:t.id,rows:[{values:t.headers.map(function(h){return cell(value[h]);})}],fields:'userEnteredValue'}});
+  };
+  const releaseId=Utilities.getUuid(), at=now.toISOString();
+  set(ACCT.TAB,ACCT.COLS,row.__row,'Status','CLOSED');
+  state.grants.forEach(function(g){set('Coaches',['Email','Role','Active'],g.__row,'Active','FALSE');});
+  state.sessions.forEach(function(r){set(AUTH.TAB,AUTH.COLS,r.__row,'RevokedAt',at);});
+  append('AccountIdentityReleases',['ReleaseID','Email','PriorAccountID','ReleasedAt','ReleasedBy','Reason'],
+    {ReleaseID:releaseId,Email:state.email,PriorAccountID:state.id,ReleasedAt:at,ReleasedBy:me.email,Reason:reason},true);
+  append(ACCOUNT_CLOSURE.TAB,ACCOUNT_CLOSURE.COLS,{ClosureID:ticket,AccountID:state.id,Email:state.email,
+    ClosedAt:at,ClosedBy:me.email,Reason:reason,PriorStatus:String(row.Status||''),AccountDigest:state.digest,
+    CoachSnapshot:JSON.stringify(state.grants),SessionRows:JSON.stringify(state.sessions.map(function(r){return r.__row;})),ReleaseID:releaseId},true);
+  const audit=auditRow_(me,'ACCOUNT_CLOSE','Account',state.id,'Status',String(row.Status||''),'CLOSED',reason+' [closure '+ticket+']');
+  audit.AuditID=Utilities.getUuid(); audit.Timestamp=at; audit.RequestID=ticket;
+  append(CONFIG.TABS.AUDIT,Object.keys(audit),audit,false);
+  const payload=JSON.stringify({requests:requests});
+  if(payload.length>1000000)throw new Error('Closure is too large for one safe operation. Nothing was closed.');
+  return payload;
+}
+function closureCommit_(payload) {
+  SpreadsheetApp.flush();
+  // Existing spreadsheets + external_request scopes; no new credentials or advanced-service dependency.
+  const response=UrlFetchApp.fetch('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(CONFIG.DB_ID)+':batchUpdate',{
+    method:'post',contentType:'application/json',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},
+    payload:payload,muteHttpExceptions:true,followRedirects:false
+  });
+  if(response.getResponseCode()<200||response.getResponseCode()>=300)
+    throw new Error('Closure could not be confirmed. Review the account again before retrying.');
+}
+/** Only remove sessions from the retired generation; never affect a later account on retry. */
+function closureClearCaches_(record) {
+  const at=new Date(record.ClosedAt).getTime();
+  const keys=(hasTab_(AUTH.TAB) ? rowsOf_(AUTH.TAB) : []).filter(function(r){
+    return closureEmail_(r.Email)===closureEmail_(record.Email) && r.RevokedAt && (new Date(r.CreatedAt).getTime()<=at || new Date(r.RevokedAt).getTime()===at);
+  }).map(function(r){return 'sess:'+String(r.SessionHash);});
+  keys.push('boot');
+  try {CacheService.getScriptCache().removeAll(keys);return true;} catch(e){return false;}
+}
+function apiCloseAccount_(p) {
+  p=p||{};
+  const ticket=s_(p.ticket), id=s_(p.accountId), reason=s_(p.reason), confirmation=closureEmail_(p.confirmEmail);
+  if(!/^[\w-]{8,80}$/.test(ticket)||!id||reason.length<8||reason.length>500||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(reason))
+    throw new Error('Review the account and enter a closure reason of 8–500 characters.');
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; const me=closureAdmin_();
+    const completed=closureRows_().filter(function(r){return s_(r.ClosureID)===ticket;})[0];
+    if(completed){
+      if(s_(completed.AccountID)!==id||closureEmail_(completed.ClosedBy)!==closureEmail_(me.email)||closureEmail_(completed.Email)!==confirmation||s_(completed.Reason)!==reason)
+        throw new Error('This confirmation does not match the completed closure.');
+      const archived=closureAccount_(id);
+      const evidence=policyRows_('AccountIdentityReleases').some(function(r){
+        return s_(r.ReleaseID)===s_(completed.ReleaseID) && !!r.ReleasedAt && isFinite(new Date(r.ReleasedAt).getTime());
+      });
+      if(acctStatusOf_(archived)!=='CLOSED'||!evidence)
+        throw new Error('This closure was reconciled or rolled back. Review the account again.');
+      return {ok:true,closed:true,repeated:true,accountId:id,cacheCleared:closureClearCaches_(completed),message:'Account already closed. Its history is preserved.'};
+    }
+    const raw=CacheService.getScriptCache().get('account-close:'+ticket);
+    const review=raw ? JSON.parse(raw) : null;
+    if(!review||review.expiresAt<=Date.now()||review.actor!==closureEmail_(me.email)||review.accountId!==id||review.email!==confirmation)
+      throw new Error('The confirmation expired or does not match. Review the account again.');
+    const row=closureAccount_(id), state=closureState_(row,me);
+    if(state.digest!==review.digest)throw new Error('The account, grants or sessions changed. Review the account again.');
+    const now=new Date(), payload=closureBatch_(row,state,me,reason,ticket,now);
+    // Pre-commit removal is safe if the batch fails. Durable release checks reject stale cache resurrection.
+    CacheService.getScriptCache().removeAll(['lc:'+state.email,'lc-n:'+state.email,'lc-cool:'+state.email,'reg:'+state.email]);
+    try {closureCommit_(payload);} catch(e){
+      __tableCache={}; __tabMap=null; __ss=null;
+      if(!closureRows_().some(function(r){return s_(r.ClosureID)===ticket;}))throw e;
+    }
+    __tableCache={}; __tabMap=null; __ss=null;
+    const record=closureRows_().filter(function(r){return s_(r.ClosureID)===ticket;})[0];
+    const closed=closureAccount_(id), release=policyRelease_(state.email);
+    if(!record||acctStatusOf_(closed)!=='CLOSED'||!release||String(release.ReleaseID)!==String(record.ReleaseID)||
+        acctRows_().some(function(r){return closureEmail_(r.Email)===state.email;})||
+        (hasTab_('Coaches')&&rowsOf_('Coaches').some(function(r){return closureEmail_(r.Email)===state.email&&String(r.Active).toUpperCase()!=='FALSE';}))||
+        (hasTab_(AUTH.TAB)&&rowsOf_(AUTH.TAB).some(function(r){return closureEmail_(r.Email)===state.email&&!r.RevokedAt;})))
+      throw new Error('Closure result needs administrator review. Do not create a new account yet.');
+    return {ok:true,closed:true,accountId:id,closureId:ticket,cacheCleared:closureClearCaches_(record),
+      message:'Account closed. Sessions ended; history preserved. Fresh registration requires new policy acknowledgments.'};
+  } finally {lock.releaseLock();}
+}
+
+
+===== Accounts.js =====
 /**
  * UCBAC Stats — Accounts.gs
  *
@@ -1633,7 +1873,7 @@ const ACCT = {
   NOTIFY_COLS: ['NotificationID', 'ToEmail', 'Kind', 'Subject', 'Body', 'EntityType',
                 'EntityID', 'TeamID', 'CreatedAt', 'SentAt', 'Status'],
   ROLES: ['PLAYER', 'COACH', 'ADMIN', 'FAN'],
-  STATUSES: ['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED'],
+  STATUSES: ['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED', 'CLOSED'],
 };
 
 // ── identity ───────────────────────────────────────────────────────────────
@@ -1641,7 +1881,8 @@ const ACCT = {
 /** Every Accounts row, or none at all when the tab has not been created yet. */
 function acctRows_() {
   if (!hasTab_(ACCT.TAB)) return [];
-  return rowsOf_(ACCT.TAB);
+  // CLOSED rows retain immutable identity/history but never grant or reuse a current account.
+  return rowsOf_(ACCT.TAB).filter(function(r) { return s_(r.Status).toUpperCase() !== 'CLOSED'; });
 }
 
 /**
@@ -1757,7 +1998,7 @@ function apiAuthState_() {
      showed only half the queue would let the other half sit unread while the
      tab said there was nothing to do. */
   var pendingCorrections = acctPendingCorrections_(me);
-  var pendingStats = (typeof taPendingStatCount_ === 'function') ? taPendingStatCount_(me) : 0;
+  var pendingStats = 0; // Player-reported stats are visible immediately, not approval work.
 
   return {
     email: me.email,
@@ -2045,7 +2286,8 @@ function apiRegister_(payload) {
 
   try {
     // another execution may have written since this one first read the tab
-    delete __tableCache[ACCT.TAB];
+    __tableCache = {};
+    authRecheckBoundSession_();
     acctAssertHeaders_(ACCT.TAB, ACCT.COLS);
 
     const me = { email: email, role: 'PUBLIC' };
@@ -2144,10 +2386,13 @@ function acctFinalizeRegistration_(reg) {
     throw new Error('Another registration is in progress. Try again in a moment.');
 
   try {
-    delete __tableCache[ACCT.TAB];
+    __tableCache = {};
+    authRecheckBoundSession_();
     acctAssertHeaders_(ACCT.TAB, ACCT.COLS);
     const me = { email: email, role: 'PUBLIC' };
     const existing = acctFind_(email);
+    // Recheck after acquiring the account write lock: another registration may have won.
+    policyCheckRegistrationDob_(reg);
 
     if (existing && acctStatusOf_(existing) === 'ACTIVE')
       return { status: 'ACTIVE', message: 'This address already has an active account — ' +
@@ -2349,8 +2594,10 @@ function acctLinkSecret_() {
 }
 
 function acctLinkSig_(accountId, decision) {
+  const row=acctRows_().filter(function(r){return s_(r.AccountID)===s_(accountId);})[0];
+  const epoch=closureReviewEpoch_(row ? s_(row.RequestedTeamID || row.TeamID) : '');
   return authHash_(acctLinkSecret_() + '|' + s_(accountId) + '|' +
-                  String(decision).toLowerCase()).slice(0, 32);
+                  String(decision).toLowerCase() + (epoch ? '|closed-grant:'+epoch : '')).slice(0, 32);
 }
 
 
@@ -2524,7 +2771,7 @@ function apiDecideByLink_(accountId, decision, sig) {
     throw new Error('This link is not valid.');
   if (!accountId || s_(sig) !== acctLinkSig_(accountId, decision))
     throw new Error('This link is not valid.');
-  return acctDecide_({ email: 'email-link', role: 'ADMIN', teamId: '' },
+  return acctDecide_({ email: 'email-link', role: 'ADMIN', teamId: '', decisionSig:sig, decision:decision },
                     accountId, decision === 'approve',
                     'decided from the request email');
 }
@@ -2539,7 +2786,10 @@ function acctDecide_(me, accountId, approve, note) {
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
 
   try {
-    delete __tableCache[ACCT.TAB];
+    __tableCache = {};
+    authRecheckBoundSession_();
+    if(me.email==='email-link' && s_(me.decisionSig)!==acctLinkSig_(accountId,me.decision))
+      throw new Error('This review link expired after an account closure. Use Approvals in the portal.');
     acctAssertHeaders_(ACCT.TAB, ACCT.COLS);
 
     var row = null;
@@ -2669,7 +2919,8 @@ function acctDecide_(me, accountId, approve, note) {
 }
 
 
-===== src/Admin.js =====
+
+===== Admin.js =====
 /**
  * UCBAC Stats — Admin.gs
  *
@@ -2962,6 +3213,14 @@ function menuAddAdmin() {
  * duplicate — two rows for one person would make access depend on row order.
  */
 function addCoach_(email, teamId, role) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; authRecheckBoundSession_();
+    return addCoachLocked_(email, teamId, role);
+  } finally {lock.releaseLock();}
+}
+function addCoachLocked_(email, teamId, role) {
   email = String(email || '').toLowerCase().trim();
   if (!email || email.indexOf('@') < 0) throw new Error('A valid email is required.');
   role = String(role || 'COACH').toUpperCase();
@@ -2999,6 +3258,14 @@ function addCoach_(email, teamId, role) {
 }
 
 function removeCoach_(email) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; authRecheckBoundSession_();
+    return removeCoachLocked_(email);
+  } finally {lock.releaseLock();}
+}
+function removeCoachLocked_(email) {
   email = String(email || '').toLowerCase().trim();
   const sh = getTab_('Coaches');
   const data = sh.getDataRange().getValues();
@@ -3116,7 +3383,7 @@ function menuUpdateHeadCoaches() {
   return msg;
 }
 
-===== src/Advertising.js =====
+===== Advertising.js =====
 /**
  * UCBAC Stats — Advertising.gs
  *
@@ -3825,7 +4092,7 @@ function adsSelfTest() {
 }
 
 
-===== src/Aggregation.js =====
+===== Aggregation.js =====
 /**
  * UCBAC Stats — Aggregations.gs
  *
@@ -3853,13 +4120,15 @@ const SUM_FIELDS = [
   // milestone-game counts. Nobody ENTERS these — computePlayerSeasonStats
   // counts them from the game rows — but they live in this list so career
   // totals and multi-season ranges sum them like any other column.
-  'Rush100G','Rec100G','Pass200G'
+  'Rush100G','Rec100G','Pass200G',
+  // Append optional fields after incumbent derived columns to preserve positions.
+  'BlockedPunts','TwoPointConversions'
 ];
 
 /**
  * A stat line nobody official has confirmed yet: a player's own entry. It
- * publishes grey and sits in the review queue until a coach or an
- * administrator approves it, or a coach writes the line himself. A coach's
+ * publishes immediately in grey with no initial approval task. Verified
+ * imported coverage replaces only the fields it establishes. A coach's
  * upload (FILE_IMPORT) is NOT provisional - it is the coach's word, official
  * as it lands, and he uploads again to change it. Every "is this
  * provisional?" test goes through here so nothing can drift.
@@ -4336,7 +4605,8 @@ function rebuildDerived_() {
   return msg;
 }
 
-===== src/AllConference.js =====
+
+===== AllConference.js =====
 /**
  * UCBAC Stats — AllConference.gs
  *
@@ -5359,7 +5629,7 @@ function apiAllConference_(seasonId) {
   });
 }
 
-===== src/AppPublicRefreshAdapter.js =====
+===== AppPublicRefreshAdapter.js =====
 // LOCAL CANDIDATE ONLY. Disabled without an explicit bounded source scope.
 // This file belongs to the source writer project; copying it to a different
 // Apps Script project cannot certify the live writer's work.
@@ -5386,7 +5656,7 @@ function appPublicRows_(tabName) {
 }
 function appPublicInputRows_() {
   var contract = UCBACPublicSource.contract, result = {};
-  var extra = {Games:['Notes'], PlayerGameStats:['Pancakes','Blocks'],
+  var extra = {Games:['Notes'], PlayerGameStats:['Pancakes','Blocks','BlockedPunts','TwoPointConversions'],
     TeamSeasons:['TeamID','SeasonID','Wins','Losses','ConfWins','ConfLosses','PointsFor','DefPointsAllowed']};
   ['Seasons','Teams','Players','PlayerSeasons','Games','PlayerGameStats','TeamSeasons'].forEach(function (name) {
     var sh = db_().getSheetByName(name);
@@ -5418,10 +5688,12 @@ function appPublicInputRows_() {
     rows.forEach(function(row,index){
       // A row with only excluded columns is ambiguous. Keep ordinary website
       // behavior by abandoning app capture rather than guessing its meaning.
-      if(!Object.keys(row).some(function(key){return row[key]!==''&&row[key]!==null;}))throw Error('Unresolved empty source input');
+      if(!Object.keys(row).some(function(key){return row[key]!==''&&row[key]!==null;}) &&
+         !m15RetiredSlot_(name,index+2))throw Error('Unresolved empty source input');
       row.__row=index+2;
     });
-    result[name]=rows;
+    // Approved archived slots have no live values; keep all other empty-row refusals.
+    result[name]=rows.filter(function(row){return Object.keys(row).some(function(key){return key!=='__row'&&row[key]!==''&&row[key]!==null;});});
   });
   return result;
 }
@@ -5545,7 +5817,7 @@ function ucbacAppPublicEvidence_(e) {
 }
 
 
-===== src/AppPublicRefreshRuntime.js =====
+===== AppPublicRefreshRuntime.js =====
 // GENERATED LOCAL CANDIDATE. Never deploy without reviewing the source integration.
 var UCBACPublicSource=(function(){
 const PUBLIC_SHEET_CONTRACT_SHA256='71f8c8b670fd6ae4ef6e7a62bdd9b527eac663c889691875831791645e952bcc';
@@ -6042,7 +6314,7 @@ return Object.freeze({...producer,...channel,contract:{
 })();
 
 
-===== src/Auth.js =====
+===== Auth.js =====
 /**
  * UCBAC Stats — Auth.gs
  *
@@ -6133,6 +6405,7 @@ const AUTH = {
  */
 var __AUTH_EMAIL = '';
 var __AUTH_BOUND = false;
+var __AUTH_TOKEN = '';
 
 function authEmail_() {
   if (__AUTH_BOUND) return __AUTH_EMAIL;
@@ -6150,13 +6423,21 @@ function authEmail_() {
  */
 function withSession_(token, fn, options) {
   options = options || {};
+  __AUTH_TOKEN = String(token || '');
   __AUTH_EMAIL = authSessionEmail_(token, !!options.fresh);
   __AUTH_BOUND = true;
   try {
     if (__AUTH_EMAIL && !options.allowIncomplete) policyRequireCurrent_();
     return fn();
   }
-  finally { __AUTH_EMAIL = ''; __AUTH_BOUND = false; }
+  finally { __AUTH_EMAIL = ''; __AUTH_BOUND = false; __AUTH_TOKEN = ''; }
+}
+
+/** Revalidate a bound portal session after acquiring an account write lock. */
+function authRecheckBoundSession_() {
+  if (!__AUTH_BOUND) return; // editor/menu uses the current Google identity
+  if (!__AUTH_EMAIL || (__AUTH_TOKEN && authSessionEmail_(__AUTH_TOKEN,true)!==__AUTH_EMAIL))
+    throw new Error('Your session ended. Sign in again.');
 }
 
 // ── primitives ──────────────────────────────────────────────────────────────
@@ -6202,6 +6483,7 @@ function ensureSessionsTab_() {
  * five-minute trigger, and a person is sitting at the form right now.
  */
 function apiRequestLoginCode_(email) {
+  const requestedAt = Date.now();
   const addr = authMailable_(email);
   const sent = 'If that address can sign in, a code is on its way. It works for ten ' +
                'minutes. Not in your inbox? Check your spam or junk folder.';
@@ -6215,7 +6497,7 @@ function apiRequestLoginCode_(email) {
   authAssertMailQuota_();
 
   const code = authNewCode_();
-  cache.put('lc:' + addr, authHash_(code), AUTH.CODE_TTL_SECONDS);
+  cache.put('lc:' + addr, JSON.stringify({hash:authHash_(code),requestedAt:requestedAt}), AUTH.CODE_TTL_SECONDS);
   cache.put('lc-n:' + addr, '0', AUTH.CODE_TTL_SECONDS);
   cache.put('lc-cool:' + addr, '1', AUTH.REQUEST_COOLDOWN_SECONDS);
 
@@ -6353,7 +6635,7 @@ function adminMintLoginCode_(email) {
   if (!addr) throw new Error('"' + email + '" is not an email address.');
   const code = authNewCode_();
   const cache = CacheService.getScriptCache();
-  cache.put('lc:' + addr, authHash_(code), AUTH.CODE_TTL_SECONDS);
+  cache.put('lc:' + addr, JSON.stringify({hash:authHash_(code),requestedAt:requestedAt}), AUTH.CODE_TTL_SECONDS);
   cache.put('lc-n:' + addr, '0', AUTH.CODE_TTL_SECONDS);
   return { email: addr, code: code, minutes: Math.round(AUTH.CODE_TTL_SECONDS / 60) };
 }
@@ -6485,6 +6767,7 @@ function apiRegisterStart_(p) {
   const email = authMailable_(p && p.email);
   if (!email) throw new Error('That is not an email address.');
   reg.email = email;
+  reg.registrationStartedAt = Date.now(); // server-owned; old queued consent cannot cross closure
 
   CacheService.getScriptCache().put('reg:' + email, JSON.stringify(reg), 1800);
   const sent = apiRequestLoginCode_(email);
@@ -6501,12 +6784,14 @@ function apiRegisterFinalize_(p) {
   if (!email) throw new Error('Sign in first.');
   const reg = authValidateRegistration_(p);
   reg.email = email;
+  reg.registrationStartedAt = Date.now(); // server-owned; old queued consent cannot cross closure
   return authFinalizeRegistration_(reg);
 }
 
 // ── step two: redeem it ─────────────────────────────────────────────────────
 
 function apiRedeemLoginCode_(email, code) {
+  const loginStartedAt = Date.now();
   const addr = authMailable_(email);
   if (!addr) throw new Error('That is not an email address.');
   const cache = CacheService.getScriptCache();
@@ -6515,6 +6800,12 @@ function apiRedeemLoginCode_(email, code) {
   if (!want)
     throw new Error('That code has expired or was never sent. Request a new one.');
 
+  var issued = {hash:want,requestedAt:0};
+  try { if (want.charAt(0)==='{') issued=JSON.parse(want); } catch(e) { throw new Error('Request a new sign-in code.'); }
+  const retired = policyRelease_(addr);
+  if (retired && (!Number.isFinite(issued.requestedAt) || issued.requestedAt<=new Date(retired.ReleasedAt).getTime()))
+    throw new Error('This code predates account closure. Request a new sign-in code.');
+
   const tries = parseInt(cache.get('lc-n:' + addr) || '0', 10) + 1;
   if (tries > AUTH.CODE_MAX_ATTEMPTS) {
     cache.remove('lc:' + addr);
@@ -6522,7 +6813,7 @@ function apiRedeemLoginCode_(email, code) {
   }
   cache.put('lc-n:' + addr, String(tries), AUTH.CODE_TTL_SECONDS);
 
-  if (authHash_(String(code || '').replace(/\D/g, '')) !== want)
+  if (authHash_(String(code || '').replace(/\D/g, '')) !== issued.hash)
     throw new Error('That is not the code. ' +
                     (AUTH.CODE_MAX_ATTEMPTS - tries) + ' attempt(s) left.');
 
@@ -6550,10 +6841,16 @@ function apiRedeemLoginCode_(email, code) {
   ensureSessionsTab_();
   const token = authNewToken_();
   const now = new Date();
-  appendRows_(AUTH.TAB, [{
-    SessionHash: authHash_(token), Email: addr, CreatedAt: now, LastSeenAt: now,
-    ExpiresAt: new Date(now.getTime() + AUTH.SESSION_DAYS * 86400000), RevokedAt: ''
-  }]);
+  const loginLock=LockService.getScriptLock();
+  if(!loginLock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Request a new sign-in code.');
+  try {
+    __tableCache={};
+    if(!policyAfterRelease_(addr,loginStartedAt)) throw new Error('Account closure occurred during sign-in. Request a new sign-in code.');
+    appendRows_(AUTH.TAB, [{
+      SessionHash: authHash_(token), Email: addr, CreatedAt: now, LastSeenAt: now,
+      ExpiresAt: new Date(now.getTime() + AUTH.SESSION_DAYS * 86400000), RevokedAt: ''
+    }]);
+  } finally {loginLock.releaseLock();}
   if (AUTH.PRUNE_ON_LOGIN) authPruneSessions_();
 
   // the state is computed AS the new session so one round trip signs in
@@ -6573,10 +6870,12 @@ function authSessionEmail_(token, fresh) {
   const cache = CacheService.getScriptCache();
   const hit = fresh ? null : cache.get('sess:' + h);
   if (hit === '!') return '';
-  if (hit) return hit;
+  // A durable release defeats a late cache write from an execution that began before closure.
+  if (hit && !policyRelease_(hit)) return hit;
 
   if (!hasTab_(AUTH.TAB)) return '';
   const now = new Date();
+  if (fresh || hit) delete __tableCache[AUTH.TAB];
   const rows = rowsOf_(AUTH.TAB);
   for (var i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -6584,7 +6883,9 @@ function authSessionEmail_(token, fresh) {
     if (r.RevokedAt) return '';
     const expiry = r.ExpiresAt instanceof Date ? r.ExpiresAt.getTime() : Date.parse(String(r.ExpiresAt || ''));
     if (!Number.isFinite(expiry) || expiry <= now.getTime()) return '';
-    const email = String(r.Email || '').toLowerCase();
+    const email = String(r.Email || '').trim().toLowerCase();
+    const release=policyRelease_(email);
+    if(release && (!isFinite(new Date(r.CreatedAt).getTime()) || new Date(r.CreatedAt).getTime()<=new Date(release.ReleasedAt).getTime())) return '';
     cache.put('sess:' + h, email, 600);
     // touched at most daily — a timestamp per call would write on every read
     if (!(r.LastSeenAt instanceof Date) || now.getTime() - r.LastSeenAt.getTime() > 86400000) {
@@ -6637,7 +6938,8 @@ function authPruneSessions_() {
 }
 
 
-===== src/Backup.js =====
+
+===== Backup.js =====
 /**
  * UCBAC Stats — Backup.gs
  *
@@ -6781,7 +7083,7 @@ function runWorkbookBackupNow_() {
 }
 
 
-===== src/Chat.js =====
+===== Chat.js =====
 /**
  * UCBAC Stats — Chat.gs
  *
@@ -6925,14 +7227,10 @@ const CHAT = {
   LOG_DAYS: 90,
   /* what the model never sees: the sign-in and mail machinery, and any
      column that names a person's address, birth date or phone */
-  HIDE_TAB: /^(Sessions|Notifications|LoginCodes|Tokens?|Accounts|AccountCompliance|PolicyAcknowledgments|PolicyDocuments|AuditLog|ChatLog|ChatCards|ShareCards)$/i,
+  HIDE_TAB: /^(Sessions|Notifications|LoginCodes|Tokens?|Accounts|AccountCompliance|AccountIdentityReleases|AccountClosures|PolicyAcknowledgments|PolicyDocuments|AuditLog|ChatLog|ChatCards|ShareCards)$/i,
   HIDE_COL: /e-?mail|birth|\bdob\b|phone|hash|token|secret|password|passcode|useragent|ipaddress/i,
   EMAIL: /[\w.+-]+@[\w-]+(\.[\w-]+)+/g,
-  /* Hiding a COLUMN called "BirthDate" is not enough once something packs one
-     into a cell of a column called something else. Accounts.Note carries the
-     registration as JSON — {"dob":"2009-04-11","coachLast":"..."} — and sailed
-     straight through a rule that only ever read column names. So a birth date
-     is taken out of any VALUE as well, whether it is labelled or bare. */
+  /* historical personal-record commentary omitted */
   DOB_LABELLED: /("?\b(?:dob|birth\w*)\b"?\s*[:=]\s*"?)[0-9]{4}-[0-9]{2}-[0-9]{2}[^",}\s]*/gi,
   DOB_BARE: /\b(?:19|20)\d{2}-\d{2}-\d{2}T[0-9:.]+Z?\b/g
 };
@@ -8640,7 +8938,8 @@ function chatListModels_() {
 }
 
 
-===== src/ChatRankings.js =====
+
+===== ChatRankings.js =====
 /**
  * UCBAC Stats — ChatRankings.gs
  * Read-only ranking knowledge for Blitz. The scoring engines are unchanged.
@@ -8829,7 +9128,7 @@ function chatRankingResults_(args) {
 }
 
 
-===== src/Cleanup2026.js =====
+===== Cleanup2026.js =====
 /**
  * UCBAC Stats — Cleanup2026.gs
  *
@@ -9252,7 +9551,7 @@ function cleanup2026SkippedMergesDry()    { Logger.log(cu26SkippedMerges_(false)
 function cleanup2026SkippedMergesApply()  { Logger.log(cu26SkippedMerges_(true)); }
 
 
-===== src/CoachInvites.js =====
+===== CoachInvites.js =====
 /**
  * UCBAC Stats — CoachInvites.gs
  *
@@ -9305,7 +9604,7 @@ function ciName_(raw) {
 function ciAccountStatus_(email) {
   if (!hasTab_('Accounts')) return '';
   const want = String(email || '').toLowerCase().trim();
-  const rows = rowsOf_('Accounts');
+  const rows = acctRows_();
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i].Email || '').toLowerCase().trim() !== want) continue;
     const st = String(rows[i].Status || '').toUpperCase().trim();
@@ -9563,7 +9862,7 @@ function menuCoachInvitesDry()  { return ciRun_(false); }
 function menuCoachInvitesSend() { return ciRun_(true); }
 
 
-===== src/CoachProfile.js =====
+===== CoachProfile.js =====
 /**
  * UCBAC Stats — CoachProfile.gs
  *
@@ -9895,6 +10194,14 @@ function apiMyCoachProfile_() {
 }
 
 function apiSaveCoachProfile_(patch) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account change is in progress. Try again.');
+  try {
+    __tableCache={}; authRecheckBoundSession_();
+    return coachSaveProfileLocked_(patch);
+  } finally {lock.releaseLock();}
+}
+function coachSaveProfileLocked_(patch) {
   patch = patch || {};
   coachEnsureColumns_();
   const r = coachMyRow_();
@@ -9945,7 +10252,7 @@ function apiSaveCoachProfile_(patch) {
 }
 
 
-===== src/ConferenceStandings.js =====
+===== ConferenceStandings.js =====
 /** UCBACstats conference standings policy, effective with the 2026 season.
  * Public website ordering, not an official championship or playoff-seeding rule.
  * Resolve whole tied groups: a pairwise head-to-head comparator is not transitive.
@@ -10086,7 +10393,7 @@ function refreshConferenceStandings() {
 }
 
 
-===== src/Config.js =====
+===== Config.js =====
 /**
  * UCBAC Stats — Config.gs
  * Central configuration. Nothing else hardcodes an ID or a magic string.
@@ -10154,7 +10461,7 @@ function db_() {
   return __ss;
 }
 
-===== src/CorrectionMail.js =====
+===== CorrectionMail.js =====
 /**
  * UCBAC Stats — CorrectionMail.gs
  *
@@ -10308,8 +10615,10 @@ function corrBaseFromSentMail_() {
  * the account-approval links, which sign the same secret over an account id.
  */
 function corrLinkSig_(correctionId, decision) {
+  const row=hasTab_(CONFIG.TABS.CORRECTIONS) ? rowsOf_(CONFIG.TABS.CORRECTIONS).filter(function(r){return s_(r.CorrectionID)===s_(correctionId);})[0] : null;
+  const epoch=closureReviewEpoch_(row ? s_(row.TeamID) : '');
   return authHash_(acctLinkSecret_() + '|corr|' + s_(correctionId) + '|' +
-                  String(decision).toLowerCase()).slice(0, 32);
+                  String(decision).toLowerCase() + (epoch ? '|closed-grant:'+epoch : '')).slice(0, 32);
 }
 
 function corrLink_(base, correctionId, decision) {
@@ -10332,7 +10641,7 @@ function apiDecideCorrectionByLink_(correctionId, decision, sig) {
   if (!correctionId || s_(sig) !== corrLinkSig_(correctionId, decision))
     throw new Error('This link is not valid.');
   return teamAdminDecideCorrection_(
-    { email: 'coach-email-link', role: 'ADMIN', teamId: '' },
+    { email: 'coach-email-link', role: 'ADMIN', teamId: '', decisionSig:sig, decision:decision },
     correctionId, decision === 'approve' ? 'APPROVE' : 'REJECT',
     'decided from the correction email');
 }
@@ -10638,7 +10947,7 @@ function menuSeedCoachEmailsDry()   { return corrSeedHeadCoachEmails_(false); }
 function menuSeedCoachEmailsApply() { return corrSeedHeadCoachEmails_(true); }
 
 
-===== src/DailySummary.js =====
+===== DailySummary.js =====
 /**
  * UCBAC Stats — DailySummary.gs
  * Operator-run editorial generation. All functions are private to Apps Script;
@@ -11380,7 +11689,7 @@ function dailySummaryStatus_() {
 }
 
 
-===== src/DailySummaryAppAdapter.js =====
+===== DailySummaryAppAdapter.js =====
 // PREPARED ONLY. Must live with the existing website's Script Properties.
 // Private function: no new public google.script.run method, trigger or writer.
 function ucbacAppDailySummary_(e) {
@@ -11410,7 +11719,7 @@ function ucbacAppDailySummary_(e) {
 }
 
 
-===== src/DailySummaryAppRuntime.js =====
+===== DailySummaryAppRuntime.js =====
 // GENERATED. scripts/build-daily-summary-source.mjs; local draft, not deployed.
 var UCBACDailySummarySource=(function(){
 'use strict';
@@ -11528,7 +11837,7 @@ return Object.freeze({createSummarySource,readPublishedSummary});
 })();
 
 
-===== src/DailySummaryUI.html =====
+===== DailySummaryUI.html =====
 <style>
 /* Home's editorial section. Both collapsed panels share a grid cell so switching
    tabs reserves the taller preview; expanding adds content in normal flow. */
@@ -11691,7 +12000,7 @@ var UcbacDailySummary=(function(){
 </script>
 
 
-===== src/Database.js =====
+===== Database.js =====
 /**
  * UCBAC Stats — Database.gs
  * Generic sheet access. ONE getValues() per tab per execution, then work in memory.
@@ -11931,7 +12240,7 @@ function ensureOpsTabs_() {
   return made;
 }
 
-===== src/Fantasy.js =====
+===== Fantasy.js =====
 /**
  * UCBAC Stats — Fantasy.gs
  *
@@ -11968,7 +12277,7 @@ function ensureOpsTabs_() {
  * page reads, so a fantasy total and a stat line can never disagree.
  */
 
-const FANTASY_CACHE_PREFIX = 'fant2:';    // bump the digit to invalidate every key
+const FANTASY_CACHE_PREFIX = 'fant3:';    // bump the digit to invalidate every key
 const FANTASY_CACHE_TTL    = 120;
 const FANTASY_LIMIT        = 50;
 const FANTASY_MAX_LIMIT    = 75;
@@ -12016,6 +12325,8 @@ const FANTASY_SIDE_LABEL = { OFFENSE: 'Offense', DEFENSE: 'Defense', SPECIAL: 'S
  * them off as canon.
  */
 const FANTASY_RULES = [
+  // Scorer only: conversion plays never enter ordinary offensive totals.
+  { key: 'TwoPointConversions', label: 'Two-point Conversion', short: '2PT', side: 'OFFENSE', group: 'Conversions', fields: ['TwoPointConversions'], pts: 2 },
   // ── passing
   { key: 'PassYds',      label: 'Passing Yards',        short: 'PASS YDS', side: 'OFFENSE', group: 'Passing',   fields: ['PassYds'],      pts: 1,   per: 25 },
   { key: 'PassTD',       label: 'Passing Touchdown',    short: 'PASS TD',  side: 'OFFENSE', group: 'Passing',   fields: ['PassTD'],       pts: 4 },
@@ -12825,7 +13136,7 @@ function apiFantasyTeam_(teamId, query) {
 }
 
 
-===== src/FantasyPeriods.js =====
+===== FantasyPeriods.js =====
 /** Calendar periods and deterministic fantasy projections. Public statistics only. */
 var __fantasyCalendar = null;
 var __fantasyForecasts = {};
@@ -13028,7 +13339,7 @@ function apiFantasyView_(query, id, includeFilters) {
 }
 
 
-===== src/FixSchedule2026.js =====
+===== FixSchedule2026.js =====
 /**
  * UCBAC Stats — FixSchedule2026.gs
  *
@@ -13156,7 +13467,7 @@ function fixSchedule2026_() {
 }
 
 
-===== src/ImportPages.js =====
+===== ImportPages.js =====
 /**
  * UCBAC Stats — ImportProfiles.gs
  *
@@ -13505,6 +13816,7 @@ function _ipSet_(sh, header, sheetRow, column, value) {
 
 /** Read layer: the awards a player has won, newest season first. */
 function apiPlayerAwards_(playerId) {
+  playerId = m15Canonical_(playerId);
   if (!hasTab_(IP_AWARDS_TAB)) return [];
   return rowsOf_(IP_AWARDS_TAB)
     .filter(function (a) { return _ipStr_(a.PlayerID) === String(playerId); })
@@ -13515,7 +13827,7 @@ function apiPlayerAwards_(playerId) {
     .sort(function (x, y) { return x.seasonId < y.seasonId ? 1 : -1; });
 }
 
-===== src/ImportRoster.js =====
+===== ImportRoster.js =====
 /**
  * UCBAC Stats — ImportRoster.gs
  *
@@ -13677,7 +13989,10 @@ function irProfileAuthors_() {
       const action = String(a.Action || '').trim();
       if (action !== 'PROFILE_EDIT' && action !== 'PROFILE_RENAME') return;
       const id = String(a.EntityID || '').trim();
-      if (id) people[id] = true;
+      if (id) {
+        people[id] = true;
+        people[m15Canonical_(id, String(a.EntityType || '').trim() === 'PlayerSeason')] = true;
+      }
     });
   }
   // A registered account is a person too, even one who has typed nothing yet.
@@ -13721,7 +14036,10 @@ function irProtectedFields_() {
     if (String(a.Action || '').trim() !== 'PROFILE_EDIT') return;
     const id = String(a.EntityID || '').trim();
     const field = String(a.Field || '').trim();
-    if (id && field) held[id + '|' + field] = true;
+    if (id && field) {
+      held[id + '|' + field] = true;
+      held[m15Canonical_(id, String(a.EntityType || '').trim() === 'PlayerSeason') + '|' + field] = true;
+    }
   });
   return held;
 }
@@ -13885,6 +14203,12 @@ function importRosterRun_(apply) {
     const k = irNorm_(p.DisplayName);
     if (!k) return;
     (byNorm[k] = byNorm[k] || []).push(p);
+  });
+  // Approved archived spellings join only the name index, never live profiles.
+  m15NameRows_(players).slice(players.length).forEach(function(p) {
+    const key = irNorm_(p.DisplayName);
+    if (key && !(byNorm[key] || []).some(function(x) { return x.PlayerID === p.PlayerID; }))
+      (byNorm[key] = byNorm[key] || []).push(p);
   });
   const seatRows = rowsOf_(CONFIG.TABS.PLAYER_SEASONS);
   const seatByPid = {};              // pid -> this-season seat row
@@ -14350,7 +14674,7 @@ function importRosterRun_(apply) {
 }
 
 
-===== src/Index.html =====
+===== Index.html =====
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -14455,7 +14779,7 @@ a.lbh:hover{text-decoration:underline}
 .card .hd .hdl{color:inherit;text-decoration:none}
 .card .hd .hdl:hover{color:var(--accent);text-decoration:underline}
 .muted{color:var(--ink3);font-size:14px}
-/* player-entered statistics awaiting approval: present, but grey until an
+/* player-reported statistics: present, but grey until an
    official confirms them - and any total they flow into goes grey with them */
 tr.prov td,tr.prov td a,tr.prov b,.prov{color:var(--ink3)!important}
 .grid{display:grid;gap:12px}
@@ -16912,7 +17236,7 @@ function mxTable(m){
     h+='<tr><td'+aB+'>'+(aH?a:'-')+'</td><td class="lbl">'+esc(r[0])+'</td><td'+bB+'>'+(bH?b:'-')+'</td></tr>';
   });
   h+='</tbody></table>';
-  if(A.prov||H.prov)h+='<div class="muted" style="font-size:11px;margin-top:3px">Includes player-entered stats awaiting approval.</div>';
+  if(A.prov||H.prov)h+='<div class="muted" style="font-size:11px;margin-top:3px">Includes player-reported stats.</div>';
   return head+h;
 }
 function sortable(id){
@@ -17471,6 +17795,8 @@ var TEAM_STAT_FIELDS=[
   {f:'KR',label:'KR',ph:'st'},{f:'KRYds',label:'KR Yds',ph:'st'},
   {f:'PR',label:'PR',ph:'st'},{f:'PRYds',label:'PR Yds',ph:'st'},
   {f:'Blocks',label:'Blk',ph:'st'},
+  {f:'BlockedPunts',label:'Blocked punts',ph:'st'},
+  {f:'TwoPointConversions',label:'2PT made',ph:'off'},
   /* Quarterback rating, on the 0–158.3 scale MaxPreps prints as "QB Rate" —
      which is the NFL formula, not NCAA efficiency. Both are real ratings and
      they disagree loudly: J. Lucas going 7 of 15 for 126 and a touchdown is
@@ -18911,6 +19237,8 @@ function lineStats(cat,x){
     add('CARRIES',x.rushAtt); add('RUSH YDS',x.rushYds); add('TD',x.rushTD);
   } else if(cat==='Receiving'){
     add('CATCHES',x.rec); add('REC YDS',x.recYds); add('TD',x.recTD);
+  } else if(cat==='SpecTeams'){
+    add('BLOCKED PUNTS',x.blockedPunts); add('2PT MADE',x.twoPointConversions);
   } else {
     var tk=(Number(x.solo)||0)+(Number(x.asst)||0);
     if(tk) out.push({k:'TACKLES',v:tk});
@@ -19204,7 +19532,7 @@ function shade(hex){
    special teams - and the log used to print each of them: three lines for one
    Friday, each blank across the other two's columns, reading as three games.
    Here the rows of a game are added into one bag. A game any part of which is
-   still awaiting approval is grey as a whole. Order is kept as sent - newest
+   containing player-reported values is grey as a whole. Order is kept as sent - newest
    season first, latest week first. */
 function playerGameLines(rows){
   var by={},out=[];
@@ -19355,7 +19683,7 @@ function pgPlayer(r){
           [{t:'Season'},{t:'Team'},{t:'GP',n:1}].concat(sc.map(function(c){return {t:c.label,n:1};})),
           srows,function(x){
             var bag=tsBagOf(x);
-            return '<tr'+(x.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+
+            return '<tr'+(x.prov?' class="prov" title="includes player-reported stats"':'')+
               '><td class="nm">'+esc(seasonLabel(x.seasonId))+'</td><td><a href="#/team/'+esc(x.teamId)+'">'+
               esc(tname(x.teamId))+'</a></td><td class="n" data-v="'+(x.gp||0)+'">'+n(x.gp)+'</td>'+
               sc.map(function(c){return tsCell(tsVal(bag,c),c,false);}).join('')+'</tr>';});
@@ -19374,7 +19702,7 @@ function pgPlayer(r){
         s+='<div id="sec-log"><h2>Game Log</h2>'+tbl('gl',
           [{t:'Season'},{t:'Wk',n:1},{t:'Opp'},{t:'Result'}].concat(lc.map(function(c){return {t:c.label,n:1};})),
           lrows,function(g){
-            return '<tr'+(g.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+
+            return '<tr'+(g.prov?' class="prov" title="includes player-reported stats"':'')+
               '><td>'+esc(seasonLabel(g.season))+'</td><td class="n" data-v="'+(g.week||0)+'">'+n(g.week)+'</td>'+
               '<td>'+esc(g.opp)+'</td><td>'+esc(gameResultFor(g,teamOfSeason[g.season]))+'</td>'+
               lc.map(function(c){return tsCell(tsVal(g.bag,c),c,false);}).join('')+'</tr>';})+'</div>';
@@ -19500,17 +19828,20 @@ function pgGame(r){
              is hovered or focused, so a box score reads as a box score and
              the offer is there the moment somebody looks for it. */
           if(cat==='Passing'){cols=[{t:'Player'},{t:'C/A',n:1},{t:'Yds',n:1},{t:'TD',n:1},{t:'INT',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+
               n(x.passComp)+'/'+n(x.passAtt)+'</td><td class="n">'+n(x.passYds)+'</td><td class="n">'+
               n(x.passTD)+'</td><td class="n">'+n(x.passInt)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           else if(cat==='Rushing'){cols=[{t:'Player'},{t:'Att',n:1},{t:'Yds',n:1},{t:'TD',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rushAtt)+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rushAtt)+
               '</td><td class="n">'+n(x.rushYds)+'</td><td class="n">'+n(x.rushTD)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           else if(cat==='Receiving'){cols=[{t:'Player'},{t:'Rec',n:1},{t:'Yds',n:1},{t:'TD',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rec)+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.rec)+
               '</td><td class="n">'+n(x.recYds)+'</td><td class="n">'+n(x.recTD)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
+          else if(cat==='SpecTeams'){cols=[{t:'Player'},{t:'Blocked punts',n:1},{t:'2PT made',n:1},{t:''}];
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.blockedPunts)+
+              '</td><td class="n">'+n(x.twoPointConversions)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           else {cols=[{t:'Player'},{t:'Solo',n:1},{t:'Ast',n:1},{t:'TFL',n:1},{t:'Sacks',n:1},{t:'INT',n:1},{t:''}];
-            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-entered, awaiting approval"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.solo)+
+            fn=function(x){return '<tr'+(x.prov?' class="prov" title="player-reported"':'')+'><td class="nm">'+plink(x,g.season)+'</td><td class="n">'+n(x.solo)+
               '</td><td class="n">'+n(x.asst)+'</td><td class="n">'+n(x.tfl)+'</td><td class="n">'+
               n(x.sacks)+'</td><td class="n">'+n(x.int)+'</td>'+rowShare(tid,cat,x)+'</tr>';};}
           out+='<div class="card" style="margin-bottom:10px"><div class="hd">'+esc(cat)+'</div>'+
@@ -20012,7 +20343,7 @@ function renderStats(f,o,d){
        /* a player's captaincy belongs to a season, and a multi-season row spans
           several - mark him from the newest one the row actually covers */
        var rs=(row.seasonIds&&row.seasonIds[0])||(o.range==='SEASON'?SEASON:'');
-       return '<tr'+(row.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+'>'+cols.map(function(c){
+       return '<tr'+(row.prov?' class="prov" title="includes player-reported stats"':'')+'>'+cols.map(function(c){
          if(c.key==='player') return '<td class="nm">'+playerLink(row.playerId,row.player,rs)+'</td>';
          if(c.key==='team')   return '<td>'+(row.teamId?'<a href="#/team/'+esc(row.teamId)+'">'+
                                              esc(row.team)+'</a>':esc(row.team))+'</td>';
@@ -20259,9 +20590,8 @@ function fKeyNote(m){
       'so those are exact.'+tail;
   return 'Standard '+(m.formatLabel||'PPR')+' scoring ('+(m.formatNote||'')+'), plus the '+
     'standard IDP table so defenders score, plus one category of our own for the line. '+
-    'Two things a standard league scores are absent, both for the same reason — the '+
-    'conference does not record them: the two-point conversion, worth 2 apiece, and '+
-    'the distance of a field goal, which is why every field goal here is a flat 3 '+
+    'Successful two-point conversions score 2 for the scorer only. '+
+    'Field goal distance is not recorded, which is why every field goal here is a flat 3 '+
     'rather than 3, 4 or 5.'+tail;
 }
 
@@ -20279,7 +20609,7 @@ function fPredictionNote(m){
 function fPredictionCell(row){
   var valid=has(row.prediction);
   var note=valid?(row.predictionTeam?'For '+row.predictionTeam+'. ':'')+'Based on '+row.predictionGames+' recorded game'+(row.predictionGames===1?'':'s')+
-    (row.predictionProvisional?'; includes statistics awaiting approval':''):'No estimate: no prior game records or no upcoming fixture';
+    (row.predictionProvisional?'; includes player-reported statistics':''):'No estimate: no prior game records or no upcoming fixture';
   return '<td class="n fprediction" title="'+esc(note)+'" aria-label="'+esc(valid?'Prediction '+fpt(row.prediction)+'. '+note:note)+'">'+
     (valid?fpt(row.prediction):'&mdash;')+'</td>';
 }
@@ -20354,7 +20684,7 @@ function renderFantasyBoard(f,o,d){
      '</tr></thead><tbody>'+
      d.rows.map(function(row){
        var cats=row.cats||{};
-       return '<tr'+(row.prov?' class="prov" title="includes player-entered stats awaiting approval"':'')+'>'+
+       return '<tr'+(row.prov?' class="prov" title="includes player-reported stats"':'')+'>'+
          '<td class="n">'+esc(has(row.rank)?String(row.rank):'')+'</td>'+
          '<td class="nm"><a href="'+esc(fHash(o,row.playerId))+'">'+esc(row.player)+'</a>'+
            (team?'':'<span class="fsub">'+
@@ -20712,7 +21042,7 @@ document.addEventListener('keydown',function(ev){
 </html>
 
 
-===== src/MergeList20260921.js =====
+===== MergeList20260921.js =====
 /** One-time, owner-requested player merge. No website deployment is required.
  * Exact pairs come from Merge-list-v1.tsv. Preview, backup, lock, audit, rebuild.
  * This file sends no mail and changes no account roles, policy records or stats.
@@ -20963,7 +21293,7 @@ function ml21Finish_() {
 }
 
 
-===== src/MergePlayers.js =====
+===== MergePlayers.js =====
 /**
  * UCBAC Stats — MergePlayers.gs
  *
@@ -21516,7 +21846,7 @@ function menuMergePairApply() {
 }
 
 
-===== src/OrphanPlayers.js =====
+===== OrphanPlayers.js =====
 /* historical record comment removed */
 
 const ORPHAN = {
@@ -21747,7 +22077,7 @@ function menuOrphanApply() {
 }
 
 
-===== src/Plays.js =====
+===== Plays.js =====
 /**
  * UCBAC Stats — Plays.gs
  *
@@ -21834,7 +22164,8 @@ const PLAYS = {
   // window drives the public countdown and the upload server's acceptance gate.
   WINDOW_OVERRIDES: {
     'SEA-2026': {
-      W5: { open: '2026-10-01 21:30', close: '2026-10-04 11:59' }
+      W5: { open: '2026-10-01 21:30', close: '2026-10-04 11:59' },
+      W7: { open: '2026-10-15 21:30', close: '2026-10-17 11:59' }
     }
   },
   MAX_BYTES: 2 * 1024 * 1024 * 1024,     // 2 GB - Drive's own comfort zone
@@ -22580,7 +22911,7 @@ function playsEnsureTab_() {
 }
 
 
-===== src/Policies.js =====
+===== Policies.js =====
 /** UCBAC Stats — Policies.gs
  * Review the policy text before publishing this version. Changing any document
  * changes the bundle fingerprint and requires a new acknowledgment. Keep old
@@ -22694,9 +23025,87 @@ function policyBirthDate_(v) {
 }
 
 function policyRows_(tab) { return hasTab_(tab) ? rowsOf_(tab) : []; }
+
+/** Append-only retirement evidence; missing Accounts alone never releases identity. */
+function policyRelease_(email) {
+  email = String(email || '').trim().toLowerCase();
+  return policyRows_('AccountIdentityReleases').filter(function(r) {
+    const at = new Date(r.ReleasedAt).getTime();
+    return String(r.Email || '').trim().toLowerCase() === email &&
+      !!r.PriorAccountID && !!r.ReleasedBy && isFinite(at) && at <= Date.now();
+  }).reduce(function(latest,r) {
+    return !latest || new Date(r.ReleasedAt) > new Date(latest.ReleasedAt) ? r : latest;
+  },null);
+}
+function policyAfterRelease_(email, at) {
+  const release = policyRelease_(email);
+  if (!release) return true;
+  const recorded = new Date(at).getTime();
+  return isFinite(recorded) && recorded > new Date(release.ReleasedAt).getTime();
+}
+function policyCheckRegistrationDob_(reg) {
+  const release = policyRelease_(reg.email);
+  if (release && (!isFinite(reg.registrationStartedAt) ||
+      Number(reg.registrationStartedAt) <= new Date(release.ReleasedAt).getTime()))
+    throw new Error('This registration predates the identity closure. Start a new registration and review the current policies.');
+  const prior = policyExistingDob_(String(reg.email || '').trim().toLowerCase());
+  var priorValid = '';
+  try { priorValid = policyBirthDate_(prior).value; } catch (ignore) {}
+  if (priorValid && priorValid !== reg.dob)
+    throw new Error('That birth date does not match the account record. Contact ' + POLICY.EMAIL + ' to correct it.');
+}
+/** Operator-only recovery after a verified closure; never exposed as a portal svc. */
+function policyReleaseClosedIdentity_(email, priorAccountId, reason) {
+  const me = accountsWhoami_();
+  if (me.role !== 'ADMIN') throw new Error('Administrator only.');
+  email = String(email || '').trim().toLowerCase();
+  priorAccountId = String(priorAccountId || '').trim();
+  reason = String(reason || '').trim();
+  if (!authMailable_(email) || !priorAccountId || !reason)
+    throw new Error('A verified email, prior account ID and closure reason are required.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
+  try {
+    __tableCache = {};
+    if (acctRows_().some(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email ||
+        String(r.AccountID || '').trim() === priorAccountId;
+    })) throw new Error('An account still exists; identity was not released.');
+    if (hasTab_('Coaches') && rowsOf_('Coaches').some(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email &&
+        String(r.Active).toUpperCase() !== 'FALSE';
+    })) throw new Error('A coach grant still exists; identity was not released.');
+    const evidence = policyRows_(POLICY.ACK_TAB).filter(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email &&
+        String(r.AccountID || '').trim() === priorAccountId;
+    });
+    if (!evidence.length) throw new Error('Prior identity evidence was not found.');
+    const existing = policyRelease_(email);
+    if (existing && String(existing.PriorAccountID) === priorAccountId &&
+        !evidence.some(function(r) {
+          return new Date(r.AcknowledgedAt).getTime() > new Date(existing.ReleasedAt).getTime();
+        })) return {released:false};
+    // Closure also ends prior sessions, preventing them inheriting a later account.
+    const now = new Date();
+    const sessions = hasTab_('Sessions') ? rowsOf_('Sessions').filter(function(r) {
+      return String(r.Email || '').trim().toLowerCase() === email && !r.RevokedAt;
+    }) : [];
+    updateCells_('Sessions', sessions.map(function(r) { return {row:r.__row,field:'RevokedAt',value:now}; }));
+    if (sessions.length) CacheService.getScriptCache().removeAll(sessions.map(function(r) {
+      return 'sess:' + String(r.SessionHash);
+    }));
+    policyEnsureTab_('AccountIdentityReleases',
+      ['ReleaseID','Email','PriorAccountID','ReleasedAt','ReleasedBy','Reason']);
+    appendRows_('AccountIdentityReleases',[{ReleaseID:Utilities.getUuid(),Email:email,
+      PriorAccountID:priorAccountId,ReleasedAt:now,ReleasedBy:me.email,Reason:reason}]);
+    return {released:true};
+  } finally { lock.releaseLock(); }
+}
+
 function policyProfile_(email) {
   return policyRows_(POLICY.PROFILE_TAB).filter(function (r) {
-    return String(r.Email || '').trim().toLowerCase() === email;
+    return String(r.Email || '').trim().toLowerCase() === email &&
+      policyAfterRelease_(email, r.RecordedAt);
   })[0] || null;
 }
 function policyDateText_(v) {
@@ -22729,6 +23138,7 @@ function policyLatestAck_(email) {
   return policyRows_(POLICY.ACK_TAB).filter(function (r) {
     const at = r.AcknowledgedAt ? new Date(r.AcknowledgedAt).getTime() : NaN;
     return String(r.Email || '').trim().toLowerCase() === email &&
+      policyAfterRelease_(email, r.AcknowledgedAt) &&
       !!String(r.BundleID || '') && isFinite(at) && at <= now &&
       String(r.TermsAgreed).toLowerCase() === 'true' &&
       String(r.PrivacyAcknowledged).toLowerCase() === 'true' &&
@@ -22797,14 +23207,16 @@ function policyEnsureTab_(name, columns) {
 }
 
 /** Called only after inbox/session verification. Never records raw session tokens. */
-function policyRecord_(email, dob, ack, source, registrationRole) {
+function policyRecord_(email, dob, ack, source, registrationRole, registrationStartedAt) {
   const birth = policyBirthDate_(dob);
   if (birth.age < 13) throw new Error('Account registration is available from age 13. Contact ' + POLICY.EMAIL + ' for help.');
   const bundle = policyValidateAck_(ack);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another account update is being saved. Try again.');
   try {
-    [POLICY.PROFILE_TAB, POLICY.ACK_TAB, POLICY.DOC_TAB, ACCT.TAB].forEach(function (tab) { delete __tableCache[tab]; });
+    __tableCache = {};
+    authRecheckBoundSession_();
+    if (source === 'registration') policyCheckRegistrationDob_({email:email,dob:birth.value,registrationStartedAt:registrationStartedAt});
     policyEnsureTab_(POLICY.PROFILE_TAB, POLICY.PROFILE_COLS);
     policyEnsureTab_(POLICY.ACK_TAB, POLICY.ACK_COLS);
     policyEnsureTab_(POLICY.DOC_TAB, POLICY.DOC_COLS);
@@ -22875,7 +23287,8 @@ function policyLinkRegistration_(email) {
     if (!row || !row.AccountID) return;
     const updates = [];
     policyRows_(POLICY.ACK_TAB).forEach(function (r) {
-      if (String(r.Email || '').trim().toLowerCase() === email && r.Source === 'registration' && !r.AccountID)
+      if (String(r.Email || '').trim().toLowerCase() === email && r.Source === 'registration' && !r.AccountID &&
+          policyAfterRelease_(email, r.AcknowledgedAt))
         updates.push({row:r.__row, field:'AccountID', value:String(row.AccountID)});
     });
     updateCells_(POLICY.ACK_TAB, updates);
@@ -22888,14 +23301,10 @@ function policyLinkRegistration_(email) {
 function authFinalizeRegistration_(reg) {
   authDob_(reg.dob, reg.role);
   policyValidateAck_(reg.policies); // reject an old code flow after a policy change
-  const prior = policyExistingDob_(String(reg.email || '').toLowerCase());
-  var priorValid = '';
-  try { priorValid = policyBirthDate_(prior).value; } catch (ignore) {}
-  if (priorValid && priorValid !== reg.dob)
-    throw new Error('That birth date does not match the account record. Contact ' + POLICY.EMAIL + ' to correct it.');
+  policyCheckRegistrationDob_(reg);
   // Inbox verification has completed. Save its actual acknowledgment before
   // account creation, so a later audit/cache failure cannot lose this step.
-  policyRecord_(reg.email, reg.dob, reg.policies, 'registration', reg.role);
+  policyRecord_(reg.email, reg.dob, reg.policies, 'registration', reg.role, reg.registrationStartedAt);
   try { return acctFinalizeRegistration_(reg); }
   finally {
     try { policyLinkRegistration_(reg.email); }
@@ -22922,7 +23331,8 @@ function withBlitzSession_(token, fn) {
 }
 
 
-===== src/PolicyUI.html =====
+
+===== PolicyUI.html =====
 <style>
 .policy-dialog{box-sizing:border-box;margin:auto;width:min(560px,calc(100vw - 28px));max-height:calc(100dvh - 32px);padding:24px;border:1px solid #ccd5e2;border-radius:14px;background:#fff;color:#182333;box-shadow:0 18px 64px #14203440;font:16px/1.5 system-ui,sans-serif;overflow:auto}
 .policy-dialog::backdrop{background:#14203488}
@@ -23073,7 +23483,7 @@ window.UcbacPolicies=(function(){
 </script>
 
 
-===== src/Portal.html =====
+===== Portal.html =====
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><title>UCBAC Stats Profile</title>
 <style>
@@ -23456,6 +23866,24 @@ window.UcbacPolicies=(function(){
 
 html{scrollbar-gutter:stable}#view{overflow-anchor:none}
 [role="tab"]:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+
+  .account-closure{font-size:16px;line-height:1.5}
+  .account-closure h2{font-size:18px}
+  .account-closure p{max-width:70ch;margin:0 0 16px}
+  .account-closure label{display:block;font-weight:600;margin-block:16px 6px}
+  .account-closure input,.account-closure textarea{font:inherit;min-height:44px;width:100%;min-width:0}
+  .account-closure textarea{min-height:96px;resize:vertical}
+  .account-closure button{min-height:44px;white-space:nowrap}
+  .closure-actions{display:flex;gap:12px;align-items:start;margin-top:16px}
+  .closure-actions input{flex:1}
+  .closure-target{display:grid;gap:4px;overflow-wrap:anywhere;margin-bottom:16px}
+  .closure-hint{font-size:14px;color:var(--muted)}
+  #closure-feedback{min-height:24px;margin-top:16px;overflow-wrap:anywhere}
+  #closure-feedback[role="alert"]{color:var(--bad)}
+  @media(prefers-color-scheme:dark){.account-closure{--bad:#ff8a80}}
+  .account-closure button:active{background:color-mix(in srgb,var(--ink) 8%,var(--card))}
+  @media(max-width:600px){.closure-actions{flex-wrap:wrap}.closure-actions input{flex-basis:100%}.closure-actions button{flex:1}}
+
 </style><?!= include_('PolicyUI'); ?>
 </head><body>
 
@@ -25603,7 +26031,8 @@ var BOX_KEY = {
   PassAtt:'passAtt', PassComp:'passComp', PassYds:'passYds', PassTD:'passTD',
   PassInt:'passInt', RushAtt:'rushAtt', RushYds:'rushYds', RushTD:'rushTD',
   Rec:'rec', RecYds:'recYds', RecTD:'recTD',
-  TackleSolo:'solo', TackleAssist:'asst', TFL:'tfl', Sacks:'sacks', Int:'int'
+  TackleSolo:'solo', TackleAssist:'asst', TFL:'tfl', Sacks:'sacks', Int:'int',
+  BlockedPunts:'blockedPunts', TwoPointConversions:'twoPointConversions'
 };
 
 var FIELD_LABEL = {
@@ -25613,7 +26042,8 @@ var FIELD_LABEL = {
   TackleSolo:'Solo', TackleAssist:'Asst', TFL:'TFL', Sacks:'Sacks',
   Int:'INT', FF:'FF', FR:'FR', PassDef:'PD', DefTD:'TD',
   FGM:'FGM', FGA:'FGA', XPM:'XPM', XPA:'XPA', Punts:'Punts', PuntYds:'Punt yds',
-  KR:'KR', KRYds:'KR yds', PR:'PR', PRYds:'PR yds'
+  KR:'KR', KRYds:'KR yds', PR:'PR', PRYds:'PR yds',
+  BlockedPunts:'Blocked punts', TwoPointConversions:'2PT made'
 };
 
 /* The same measures spelled out, for a player choosing one to dispute and for
@@ -25631,7 +26061,9 @@ var FIELD_LONG = {
   FGM:'Field goals made', FGA:'Field goals attempted', XPM:'Extra points made',
   XPA:'Extra points attempted', Punts:'Punts', PuntYds:'Punt yards',
   KR:'Kick returns', KRYds:'Kick return yards', PR:'Punt returns',
-  PRYds:'Punt return yards'
+  PRYds:'Punt return yards',
+  BlockedPunts:'Blocked punts (subset of blocked kicks; do not add to Blocks)',
+  TwoPointConversions:'Successful two-point conversions (scorer only; exclude ordinary offensive stats)'
 };
 function fieldLong(f){ return FIELD_LONG[f] || f; }
 
@@ -26080,6 +26512,75 @@ function renderLinksAgain(){
   viewLinks();
 }
 
+/* Admin closure stays in Approvals; server calls independently enforce ADMIN. */
+var CLOSE_ACCOUNT={target:'',review:null,reason:'',confirmation:'',pending:false,message:'',error:'',retry:null};
+function accountClosureHTML(){
+  if(!STATE.auth||!STATE.auth.isAdmin)return '';
+  var c=CLOSE_ACCOUNT,r=c.review,disabled=c.pending?' disabled':'',h='';
+  h='<section id="account-closure" class="card account-closure" aria-labelledby="account-closure-heading" aria-busy="'+(c.pending?'true':'false')+'">'
+    +'<h2 id="account-closure-heading">Account closure</h2>'
+    +'<p>Close an account after verifying the owner’s request. Account and policy history stay archived; player and game history remain.</p>';
+  if(c.retry){
+    h+='<p>Closure was saved. Cache cleanup needs another attempt; retired sessions remain blocked.</p>'
+      +'<button type="button" data-a="closeRetry"'+disabled+'>'+(c.pending?'Clearing caches…':'Retry cache cleanup')+'</button>';
+  }else if(r&&!r.closed){
+    h+='<div class="closure-target"><strong>'+esc(r.name||r.email)+'</strong><span>'+esc(r.email)+'</span><span>'+esc(r.accountId)+' / '+esc(r.status)+' / '+esc(r.role)+'</span></div>'
+      +'<p>This ends '+plural(r.sessions,'session')+' and disables '+plural(r.coachGrants,'coach or administrator grant')+'. The email becomes available for fresh registration with new policy acknowledgments.</p>'
+      +(r.reviewLinksAffected?'<p>This invalidates existing emailed account and correction review links for '+esc(r.reviewLinkScope||'the affected teams')+', including links held by other reviewers. Remaining reviewers can sign in and use Approvals.</p>':'')
+      +'<p class="closure-hint">This review expires after five minutes. Review the account again if its details change.</p>'
+      +'<label for="closure-reason">Reason for closure</label><textarea id="closure-reason" data-h="closeReason" minlength="8" maxlength="500" aria-describedby="closure-reason-help"'+disabled+'>'+esc(c.reason)+'</textarea>'
+      +'<p id="closure-reason-help" class="closure-hint">Record how the closure was authorized. Use 8–500 characters.</p>'
+      +'<label for="closure-confirm">Type '+esc(r.email)+' to confirm</label><input id="closure-confirm" data-h="closeConfirm" type="email" autocomplete="off" spellcheck="false" value="'+esc(c.confirmation)+'"'+disabled+'>'
+      +'<div class="closure-actions"><button type="button" data-a="closeCancel"'+disabled+'>Cancel</button><button type="button" class="danger" data-a="closeConfirm"'+disabled+'>'+(c.pending?'Closing account…':'Close account')+'</button></div>';
+  }else{
+    if(r&&r.closed)h+='<p>'+esc(r.message)+' '+esc(r.accountId)+'</p>';
+    h+='<label for="closure-target">Exact email or account ID</label><div class="closure-actions"><input id="closure-target" data-h="closeTarget" autocomplete="off" value="'+esc(c.target)+'"'+disabled+'><button type="button" data-a="closeReview"'+disabled+'>'+(c.pending?'Reviewing…':'Review account')+'</button></div>';
+  }
+  h+='<div id="closure-feedback" tabindex="-1" role="'+(c.error?'alert':'status')+'" aria-live="polite">'+esc(c.error||c.message)+'</div></section>';
+  return h;
+}
+function paintAccountClosure(focus){
+  var el=document.getElementById('account-closure');if(!el)return;
+  el.outerHTML=accountClosureHTML();
+  if(focus){var input=document.getElementById(focus);if(input)input.focus();}
+}
+INP.closeTarget=function(el){CLOSE_ACCOUNT.target=el.value;};
+INP.closeReason=function(el){CLOSE_ACCOUNT.reason=el.value;};
+INP.closeConfirm=function(el){CLOSE_ACCOUNT.confirmation=el.value;};
+ACT.closeCancel=function(){
+  if(CLOSE_ACCOUNT.pending)return;
+  CLOSE_ACCOUNT.review=null;CLOSE_ACCOUNT.reason='';CLOSE_ACCOUNT.confirmation='';CLOSE_ACCOUNT.error='';CLOSE_ACCOUNT.message='';
+  paintAccountClosure('closure-target');
+};
+ACT.closeReview=function(){
+  var c=CLOSE_ACCOUNT;if(c.pending)return;
+  if(!c.target.trim()){c.error='Enter the exact email or account ID.';paintAccountClosure('closure-target');return;}
+  var current=portalViewCurrent();c.pending=true;c.error='';c.message='';paintAccountClosure();
+  call('svcPrepareAccountClosure',[c.target.trim()]).then(function(r){
+    c.pending=false;if(!current())return;
+    c.review=r;c.reason='';c.confirmation='';paintAccountClosure(r.closed?'closure-feedback':'closure-reason');
+  }).catch(function(e){c.pending=false;if(!current())return;c.error=msgOf(e);paintAccountClosure('closure-feedback');});
+};
+function sendAccountClosure(p){
+  var c=CLOSE_ACCOUNT;if(c.pending)return;
+  var current=portalViewCurrent();c.pending=true;c.error='';c.message='';paintAccountClosure();
+  call('svcCloseAccount',[p]).then(function(r){
+    c.pending=false;if(!current())return;
+    if(!r||!r.ok)throw new Error((r&&r.message)||'Closure was not confirmed. Review the account again.');
+    c.message=r.message;c.review=null;c.reason='';c.confirmation='';c.retry=r.cacheCleared?null:p;
+    STATE.ta=null;STATE.roster=null;STATE.pending=null;STATE.acctTotals=null;
+    paintAccountClosure('closure-feedback');
+    if(r.cacheCleared)refreshAuthThen(viewApprovals);
+  }).catch(function(e){c.pending=false;if(!current())return;c.error=msgOf(e);paintAccountClosure('closure-feedback');});
+}
+ACT.closeConfirm=function(){
+  var c=CLOSE_ACCOUNT,r=c.review;if(c.pending||!r||r.closed)return;
+  if(c.reason.trim().length<8||c.reason.trim().length>500){c.error='Enter a closure reason of 8–500 characters.';paintAccountClosure('closure-reason');return;}
+  if(c.confirmation.trim().toLowerCase()!==r.email){c.error='Type the reviewed email exactly to confirm.';paintAccountClosure('closure-confirm');return;}
+  sendAccountClosure({ticket:r.ticket,accountId:r.accountId,reason:c.reason.trim(),confirmEmail:c.confirmation.trim()});
+};
+ACT.closeRetry=function(){if(CLOSE_ACCOUNT.retry)sendAccountClosure(CLOSE_ACCOUNT.retry);};
+
 /* - Approvals - */
 
 function viewApprovals(){
@@ -26092,7 +26593,7 @@ function viewApprovals(){
     // A coach with no pending queue is not an error, and a thrown "coaches only"
     // must not take the corrections list down with it.
     call('svcPendingAccounts').catch(function(){if(!isCurrent())return; return { pending: [], totals: null }; }),
-    call('svcPendingPlayerStats').catch(function(){if(!isCurrent())return; return []; }),
+    Promise.resolve([]),
     /* Corrections come from their own endpoint, scoped by role, NOT from the
        team payload: an administrator's badge counts the whole conference and
        his list has to match it. Asking svcTeamAdmin would show him only the
@@ -26131,6 +26632,8 @@ function renderApprovals(d, pending){
       + '<b style="font-size:24px">'+Number(tt.pending||0)+'</b></div>'
       + '</div></div>';
   }
+
+  h += accountClosureHTML();
 
   h += '<div class="card"><h2>Account requests'
     + (pending.length?'<span class="badge">'+pending.length+'</span>':'')+'</h2>';
@@ -26241,44 +26744,10 @@ function renderApprovals(d, pending){
   }
   h += '</div>';
 
-  /* - player-entered stats -
-     Live on the site in grey. Approve turns them black; reject deletes them;
-     entering the official box score in Stat Entry replaces them without
-     touching this queue. */
-  var ps = STATE.pendStats || [];
-  h += '<div class="card"><h2>Stats waiting for approval'
-    + (ps.length?'<span class="badge">'+ps.length+'</span>':'')+'</h2>';
-  if (!ps.length){
-    h += '<div class="sub">Nothing waiting. Only lines players enter themselves under My Stats '
-      + 'land here, in grey on the site until a coach or an administrator confirms them. A '
-      + 'coach\'s own uploads and box scores are official as they land. '
-      + 'Lines waiting here are counted in the morning summary email.</div>';
-  } else {
-    h += ps.map(function(g){
-        var nums = g.lines.map(function(l){
-          return '<span class="pill">'+esc(l.category)+'</span> '
-            + Object.keys(l).filter(function(k){ return k!=='category'; })
-                .map(function(k){ return esc(FIELD_LABEL[k]||k)+' '+esc(l[k]); }).join(' \u00b7 ');
-        }).join('<br>');
-        return '<div class="req">'
-          + '<div class="row"><span class="nm">'+esc(g.player)+'</span>'
-          + '<span class="pill">player entered</span>'
-          + '<span class="sub">'+esc(g.teamName)+'</span>'
-          + '<span class="sub">'+(g.week!==null?'week '+esc(g.week):'')+(g.opponent?' \u00b7 vs '+esc(g.opponent):'')+'</span>'
-          + '<span class="sub" style="margin-left:auto">'+esc(dateShort(g.enteredAt))+'</span></div>'
-          + '<div class="kv" style="margin-top:6px">'+nums+'</div>'
-          + '<div class="row" style="margin-top:10px">'
-          + '<button type="button" class="mini primary" data-a="psYes" data-g="'+esc(g.gameId)+'" data-p="'+esc(g.playerId)+'">Approve</button>'
-          + '<button type="button" class="mini danger" data-a="psNo" data-g="'+esc(g.gameId)+'" data-p="'+esc(g.playerId)+'">Reject</button>'
-          + '</div></div>';
-      }).join('')
-      + '<div class="sub">Approving keeps the numbers exactly as entered and turns them '
-      + 'black across the site. Rejecting removes them entirely and tells the player. '
-      + 'Entering the official box score yourself replaces them without this queue.</div>';
-  }
-  h += '</div>';
+  // Initial player entries publish immediately; only corrections need stat approval.
 
   paint(h);
+  if(CLOSE_ACCOUNT.message)paintAccountClosure('closure-feedback');
 }
 
 /* - deciding one item in a queue -
@@ -26353,16 +26822,7 @@ function decideItem(el, run, onOk){
   });
 }
 
-function decidePlayerStats(el, decision){
-  var gid = el.getAttribute('data-g'), pid = el.getAttribute('data-p');
-  decideItem(el, function(){ return call('svcReviewPlayerStats', [gid, pid, decision]); },
-    function(){
-      STATE.pendStats = null; STATE.ta = null;
-      refreshAuthThen(viewApprovals);
-    });
-}
-ACT.psYes = function(el){ decidePlayerStats(el, 'APPROVE'); };
-ACT.psNo  = function(el){ decidePlayerStats(el, 'REJECT'); };
+
 
 var NOTES = {};
 INP.apNote = function(el){ NOTES['a'+el.getAttribute('data-id')] = el.value; };
@@ -27331,7 +27791,9 @@ var SHARE_STATS = [
   { f:'PRYds',    label:'PR YDS',    side:'SPECIAL', w:0.4 },
   /* A blocked kick is one play and it is usually the play of the night,
      so it outranks the yardage around it the way a sack does. */
-  { f:'Blocks',   label:'BLOCKS',    side:'SPECIAL', w:35 }
+  { f:'Blocks',   label:'BLOCKS',    side:'SPECIAL', w:35 },
+  { f:'BlockedPunts', label:'BLOCKED PUNTS', side:'SPECIAL', w:35 },
+  { f:'TwoPointConversions', label:'2PT MADE', side:'OFFENSE', w:20 }
 ];
 var SHARE_MAX_TILES = 6;
 
@@ -27815,7 +28277,7 @@ ACT.seSend = function(el){
     }
     STATE.statEntry = null;
     STATE.mine = null;               // the log has a new grey line to show
-    flash('Submitted. It shows in grey until your coach approves it.', 'good');
+    flash('Saved. Your stats are visible on the site in grey as player-reported.', 'good');
     viewMyStats();
   }).catch(function(e){
     en.busy = false; el.disabled = false;
@@ -27866,8 +28328,7 @@ function renderMyStats(){
   h += '</div>';
 
   /* - entering your own line -
-     Published immediately, in grey, and queued for your coach: approval turns
-     it black, rejection removes it, and the official box score replaces it. */
+     Published immediately in grey, with no approval queue. Official imports replace covered fields. */
   var ed2 = (STATE.prof && STATE.prof.editable) || {};
   var cats = ed2.statCategories || {};
   var catOrder = (ed2.statCategoryOrder || []).filter(function(c){ return cats[c]; });
@@ -27878,10 +28339,10 @@ function renderMyStats(){
       + '1&#41; Pick the game - entry opens the morning after it is played. '
       + '2&#41; Pick a category (Passing, Rushing, Defense&hellip;) and type your numbers - '
       + 'leave anything you did not record blank, never 0. '
-      + '3&#41; Save. Your line publishes on the site immediately in <b>grey</b> and your '
-      + 'coach gets an approval badge: approval turns it black, rejection removes it, and '
-      + 'anything your coach enters replaces it automatically. '
-      + 'Once the official box score is in, use <b>Correct a number</b> below instead.</div>'
+      + '3&#41; Save. Your stats publish immediately in <b>grey</b> as player-reported; no approval is needed. '
+      + 'Verified coach imports replace the matching fields automatically. '
+      + 'While team reporting is incomplete, you can add missing categories or update fields you reported. '
+      + 'For an officially recorded field, or once team reporting is marked complete, use <b>Correct a number</b> below.</div>'
       + '<div class="row" style="flex-wrap:wrap;align-items:flex-end">'
       + '<div><label class="f">Game</label><select data-h="seGame">'
       + '<option value="">Choose...</option>'
@@ -27906,7 +28367,7 @@ function renderMyStats(){
         + '</div>';
     }
     h += '<div class="row end" style="margin-top:12px"><span class="sub grow" id="seMsg"></span>'
-      + '<button type="button" class="primary mini" data-a="seSend"'+(en.busy?' disabled':'')+'>Submit for review</button>'
+      + '<button type="button" class="primary mini" data-a="seSend"'+(en.busy?' disabled':'')+'>Save stats</button>'
       + '</div></div>';
   }
 
@@ -28330,7 +28791,7 @@ function dashPlayerTiles(prof, cur, mine, corr, pi){
   var nGames = Object.keys(gameIds).length, grey = log.filter(function(x){ return x.prov; }).length;
   var ss = ((mine && mine.seasonStats) || []).filter(function(x){ return x.seasonId === season; })[0];
   h += dashTile('', 'My stats', nGames+' game'+(nGames === 1 ? '' : 's')+' logged',
-                dashMyLine(ss) || (grey ? grey+' line'+(grey === 1 ? '' : 's')+' awaiting approval' : 'Enter a game on My Stats'),
+                dashMyLine(ss) || (grey ? grey+' line'+(grey === 1 ? '' : 's')+' player-reported' : 'Enter a game on My Stats'),
                 'mystats');
   // corrections he has filed
   var open = corr.filter(function(c){ return c.status === 'PENDING'; }).length;
@@ -28348,7 +28809,7 @@ function dashMyLine(ss){
                [n(ss.solo) + n(ss.asst), 'tackles'], [n(ss.sacks), 'sacks'], [n(ss.int), 'interceptions']]
     .filter(function(p){ return p[0] > 0; }).sort(function(a, b){ return b[0] - a[0]; });
   if (!picks.length) return '';
-  return picks.slice(0, 2).map(function(p){ return p[0]+' '+p[1]; }).join(' · ')+(ss.prov ? ' · some awaiting approval' : '');
+  return picks.slice(0, 2).map(function(p){ return p[0]+' '+p[1]; }).join(' · ')+(ss.prov ? ' · includes player-reported stats' : '');
 }
 
 function dashTile(cls, head, n, sub, view){
@@ -28458,7 +28919,7 @@ function dashTopFive(lb, pid){
   h += '<div class="sub" style="margin-bottom:10px">Where '+(pid ? 'you stand' : esc(team)+' players stand')+' in the top five of any stat category, conference-wide.</div>'
     + '<div class="scroll"><table><thead><tr><th>Rank</th><th>Player</th><th>Category</th><th class="num">Value</th></tr></thead><tbody>'
     + mine.map(function(x){
-        return '<tr'+(x.prov ? ' class="provrow" title="includes stats awaiting approval"' : '')+'>'
+        return '<tr'+(x.prov ? ' class="provrow" title="includes player-reported stats"' : '')+'>'
           + '<td><span class="tk '+(x.rank === 1 ? 'ok' : 'none')+'">#'+esc(x.rank)+'</span></td>'
           + '<td class="nm">'+esc(x.player)+'</td><td>'+esc(x.label || x.cat)+'</td><td class="num">'+esc(x.value)+'</td></tr>';
       }).join('')
@@ -28476,7 +28937,6 @@ function dashTiles(pi){
   var h = '<div class="dash-tiles">'
     + wait('pendingAccounts', 'Account requests')
     + wait('pendingCorrections', 'Stat corrections')
-    + wait('pendingStats', 'Stats to approve')
     + (a.isAdmin && tt ? dashTile('', 'Accounts', n(tt.players) + n(tt.coaches),
                                   n(tt.players)+' players · '+n(tt.coaches)+' coaches', 'approvals') : '');
   return h + dashPlaysTile(pi) + '</div>';
@@ -28504,7 +28964,7 @@ function dashBox(b, meta){
   var text = meta.unit === 'players' ? n+' player'+(n===1?'':'s') : n+' '+esc(meta.unit);
   var cls = b.short ? 'bad' : b.pending ? 'warn' : 'ok';
   return '<span class="tk '+cls+'"'
-    + (b.pending ? ' title="Some of this is waiting in Approvals"' : b.short ? ' title="Fewer than '+STATE.minPlayers+' players"' : '')
+    + (b.pending ? ' title="Includes player-reported stats"' : b.short ? ' title="Fewer than '+STATE.minPlayers+' players"' : '')
     + '>'+text+'</span>';
 }
 /* the reason a row is short of complete, in words */
@@ -28545,7 +29005,7 @@ function dashTracker(tr, title){
   h += '<div class="sub" style="margin-bottom:12px">'+(one ? 'Each week you played.' : 'Each school, each week it played.')
     + ' Team boxes carry the totals on file - yards on offense, tackles on defense. Individual boxes count the '
     + 'named players with stats on that side; a side counts as submitted at '+STATE.minPlayers+' players or more. '
-    + 'Amber is in and waiting in Approvals.</div>';
+    + 'Amber indicates player-reported stats.</div>';
   /* Stats In is a different question from the boxes beside it. The boxes say
      what arrived; this says somebody looked and it was ALL of it - which is
      what the other side's Allowed figures are built on, and cannot be worked
@@ -28585,7 +29045,7 @@ function dashTracker(tr, title){
     var covN = Number(w.covPlayed || 0);
     var sum = '<summary>'+esc(w.label)
       + '<span class="sub">'+w.complete+' of '+w.teams+' complete</span>'
-      + (w.pending ? '<span class="tk warn">'+w.pending+' awaiting approval</span>' : '')
+      + (w.pending ? '<span class="tk warn">'+w.pending+' with player-reported stats</span>' : '')
       + (w.missing ? '<span class="tk bad">'+w.missing+' missing</span>'
                    : (w.teams ? '<span class="tk ok">All stats submitted</span>' : ''))
       /* A week with no conference game in it has nothing to receive, and a
@@ -28929,7 +29389,7 @@ document.addEventListener('keydown',function(ev){
 </body></html>
 
 
-===== src/Positions.js =====
+===== Positions.js =====
 /**
  * UCBAC Stats — Positions.gs
  *
@@ -29280,7 +29740,7 @@ function backfillPositions() {
   return msg;
 }
 
-===== src/Profile.js =====
+===== Profile.js =====
 /**
  * UCBAC Stats — Profile.gs
  *
@@ -29928,25 +30388,36 @@ function apiSubmitMyStats_(gameId, rows) {
     throw new Error('Stat entry for this game opens the day after it is played. ' +
                     'Come back tomorrow.');
 
-  /* The window for self-entry is BEFORE the official box score exists. One
-     official line for this game and team — a coach's entry, an approved entry,
-     an import — closes it: from then on the player's road is a correction
-     request, which lands on the same Approvals badge. Two entry paths onto the
-     same recorded game would make every disagreement a race. */
-  const official = rowsOf_(CONFIG.TABS.PLAYER_STATS).some(function (r) {
-    return s_(r.GameID) === gameId && s_(r.TeamID) === teamId &&
-           s_(r.grain || r.Grain) === CONFIG.GRAIN.GAME &&
-           s_(r.SourceType) !== 'PLAYER_ENTRY';
-  });
-  if (official)
-    throw new Error('Your coach has already entered statistics for this game. If a ' +
-                    'number is missing or wrong, request a correction below — it goes ' +
-                    'to your coach the same way.');
+  // Completeness, identity, roster and timing are rechecked under the writer's
+  // script lock. Another player's approved line does not complete this team.
 
   /* No mail to the coach — the Approvals badge is the notification. Forty
      players entering Friday's stats must not be forty messages. */
   return apiSavePlayerStats_(gameId, teamId, rows,
                             { playerId: me.playerId, email: me.email });
+}
+
+/** Final self-entry eligibility. Call only while holding the stat-save lock. */
+function profileAssertSelfStats_(self, game, teamId) {
+  const current = profileWhoami_();
+  if (s_(self.playerId) !== s_(current.playerId) ||
+      s_(self.email).toLowerCase() !== s_(current.email).toLowerCase())
+    throw new Error('Your player account changed. Reload and try again.');
+  const seasonId = s_(game.SeasonID) || CONFIG.CURRENT_SEASON;
+  const seat = rowsOf_(CONFIG.TABS.PLAYER_SEASONS).filter(function (r) {
+    return s_(r.PlayerID) === current.playerId && s_(r.SeasonID) === seasonId;
+  })[0];
+  if (!seat || s_(seat.TeamID) !== teamId)
+    throw new Error('You are not on this team’s roster for this season. Reload or contact an administrator.');
+  const gameDate = apiDateStr_(game.GameDate);
+  if (gameDate && apiTodayStr_() <= gameDate)
+    throw new Error('Stat entry for this game opens the day after it is played. Come back tomorrow.');
+  // Both memo layers must be fresh after waiting for the shared script lock.
+  // Missing coverage and explicit FALSE mean incomplete, as on the tracker.
+  __statsCovMap = null;
+  delete __tableCache[STATSCOV.TAB];
+  if (statsCovComplete_(s_(game.GameID), teamId))
+    throw new Error('Your team’s statistics for this game are marked complete. If a number is missing or wrong, request a correction below.');
 }
 
 // ── write ──────────────────────────────────────────────────────────────────
@@ -30018,6 +30489,8 @@ function apiSaveProfile_(patch, forPlayerId) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // another execution may have written to either tab since this one read it
     delete __tableCache[CONFIG.TABS.PLAYERS];
     delete __tableCache[CONFIG.TABS.PLAYER_SEASONS];
@@ -30280,6 +30753,8 @@ function apiRequestCorrection_(payload) {
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     ensureOpsTabs_();
     delete __tableCache[CONFIG.TABS.CORRECTIONS];
     acctAssertHeaders_(CONFIG.TABS.CORRECTIONS, PROFILE.CORRECTION_COLS);
@@ -30507,7 +30982,7 @@ function sendPendingNotifications_(limit) {
   }
 }
 
-===== src/RepairPlayerIds.js =====
+===== RepairPlayerIds.js =====
 /* historical record comment removed */
 
 function _rpNorm_(s_) {
@@ -30746,7 +31221,7 @@ function _rpRun_(apply) {
 }
 
 
-===== src/ResolveStats.js =====
+===== ResolveStats.js =====
 /**
  * UCBAC Stats — ResolveStats.gs
  *
@@ -30875,7 +31350,7 @@ function resolveStatsRun_(apply) {
   const byExact = {}, byFL = {}, byIL = {};
   const nameOf = {};                       // pid -> DisplayName, for the report
   function add(map, key, pid) { (map[key] = map[key] || {})[pid] = true; }
-  players.forEach(function (p) {
+  m15NameRows_(players).forEach(function (p) {
     const t = rsToks_(p.DisplayName);
     if (!t.length) return;
     const pid = String(p.PlayerID);
@@ -31107,7 +31582,7 @@ function resolveStatsRun_(apply) {
   }
 }
 
-===== src/Roster.js =====
+===== Roster.js =====
 /**
  * UCBAC Stats — Roster.gs
  *
@@ -31269,6 +31744,8 @@ function apiSaveRoster_(teamId, seasonId, edits) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     const sh = getTab_(CONFIG.TABS.PLAYER_SEASONS);
     const data = sh.getDataRange().getValues();
     const head = data[0].map(String);
@@ -31434,6 +31911,8 @@ function apiDeletePlayers_(teamId, seasonId, playerSeasonIds) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     const sh = getTab_(CONFIG.TABS.PLAYER_SEASONS);
     const data = sh.getDataRange().getValues();
     const head = data[0].map(String);
@@ -31580,6 +32059,8 @@ function apiAddPlayer_(teamId, seasonId, player) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // allocate inside our own lock; nextId() would take the lock again and hang
     const playerId = nextPlayerIdLocked_();
     appendRows_(CONFIG.TABS.PLAYERS, [{
@@ -31610,7 +32091,7 @@ function apiAddPlayer_(teamId, seasonId, player) {
   }
 }
 
-===== src/Schema.js =====
+===== Schema.js =====
 /**
  * UCBAC Stats — Schema.gs
  *
@@ -31663,7 +32144,8 @@ const SCHEMA = {
   // Who put a stat line in. Blank and IMPORT and COACH_ENTRY are official;
   // PLAYER_ENTRY is a player's own claim, published in grey until a coach or
   // administrator approves it or an official entry supersedes it.
-  PLAYER_STATS_ADD: ['SourceType', 'EnteredBy', 'EnteredAt', 'Pancakes', 'Blocks'],
+  PLAYER_STATS_ADD: ['SourceType', 'EnteredBy', 'EnteredAt', 'Pancakes', 'Blocks',
+                     'BlockedPunts', 'TwoPointConversions'],
 
   /* Positions is already present on the live workbook; listing it here is what
      makes a fresh import safe, and addColumns() skips it when it exists.
@@ -31920,6 +32402,8 @@ function ensureSchema_() {
     schemaAddTo_(CONFIG.TABS.PLAYERS,        SCHEMA.PLAYERS_ADD,        out, warn);
     schemaAddTo_(CONFIG.TABS.PLAYER_SEASONS, SCHEMA.PLAYER_SEASONS_ADD, out, warn);
     schemaAddTo_(CONFIG.TABS.PLAYER_STATS,   SCHEMA.PLAYER_STATS_ADD,   out, warn);
+    if (hasTab_('StatsImport'))
+      schemaAddTo_('StatsImport', ['BlockedPunts', 'TwoPointConversions'], out, warn);
     schemaAddTo_(CONFIG.TABS.CORRECTIONS,    SCHEMA.CORRECTIONS_ADD,    out, warn);
     schemaAddTo_(CONFIG.TABS.GAMES,          SCHEMA.GAMES_ADD,          out, warn);
     schemaAddTo_(CONFIG.TABS.TEAM_SEASONS,   SCHEMA.TEAM_SEASONS_ADD,   out, warn);
@@ -31972,7 +32456,46 @@ function menuEnsureSchema_() {
   return msg;
 }
 
-===== src/Setup.js =====
+/** Scoped activation: only the two approved optional stat headers. */
+function menuEnsureConversionSchema() {
+  const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  const owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!active || active !== owner) throw new Error('Run this migration from the owner Apps Script editor.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Another save is in progress.');
+  try {
+    const fields = ['BlockedPunts', 'TwoPointConversions'];
+    const tabs = [CONFIG.TABS.PLAYER_STATS, 'StatsImport'];
+    tabs.forEach(function (tab) {
+      if (!hasTab_(tab)) throw new Error('Missing tab: ' + tab);
+      if (columnConflicts_(tab, fields).length) throw new Error('Conflicting headers on ' + tab);
+    });
+    const report = tabs.map(function (tab) {
+      const added = addColumns_(tab, fields);
+      const sh = getTab_(tab), head = tabHeader_(tab);
+      // Inserted columns can inherit EnteredAt's date format. Counts must be
+      // numeric on getValues(), never Date objects converted to epoch millis.
+      fields.forEach(function (field) {
+        if (sh.getMaxRows() > 1)
+          sh.getRange(2, head.indexOf(field) + 1, sh.getMaxRows() - 1, 1).setNumberFormat('0');
+      });
+      return tab + ': ' + added.join(', ') + ' (integer formatting verified)';
+    }).join('\n');
+    Logger.log(report);
+    return report;
+  } finally { lock.releaseLock(); }
+}
+
+/** Owner editor runner: incumbent rebuild/cache/snapshot path without UI dialogs. */
+function menuRebuildConversionStats() {
+  const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  const owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!active || active !== owner) throw new Error('Run this rebuild from the owner Apps Script editor.');
+  return runRebuild_('manual');
+}
+
+
+===== Setup.js =====
 /**
  * UCBAC Stats — Setup.gs
  * Menu + verification. Run verifyDatabase() first; then rebuildDerived().
@@ -32252,7 +32775,7 @@ function pad_(s_, n) {
   return s_;
 }
 
-===== src/Share.js =====
+===== Share.js =====
 /* historical record comment removed */
 
 const SHARE = {
@@ -32559,7 +33082,7 @@ function menuShareCheck() {
 }
 
 
-===== src/Stats.js =====
+===== Stats.js =====
 /**
  * UCBAC Stats — Stats.gs
  *
@@ -32594,7 +33117,7 @@ function menuShareCheck() {
  * would sort a player who reported nothing to the top of a leaderboard.
  */
 
-const STATS_CACHE_PREFIX = 'stats1:';   // bump the digit to invalidate every key
+const STATS_CACHE_PREFIX = 'stats2:';   // bump the digit to invalidate every key
 const STATS_CACHE_TTL    = 900;
 const STATS_DEFAULT_LIMIT = 50;
 // A page of 100 player rows with every column measured 91,700 characters against
@@ -32713,6 +33236,9 @@ const STATS_FIELDS = [
   { key: 'PRAvg',      label: 'PR Avg',      side: 'SPECIAL', group: 'Returns',   format: 'dec1', derived: true, rate: true },
   // a punt, a field goal or an extra point stopped at the line
   { key: 'Blocks',     label: 'Blk',         side: 'SPECIAL', group: 'Returns',   format: 'int' },
+
+  { key: 'BlockedPunts', label: 'Blocked punts', side: 'SPECIAL', group: 'Blocks', format: 'int' },
+  { key: 'TwoPointConversions', label: '2PT made', side: 'OFFENSE', group: 'Conversions', format: 'int' },
 
   // ── measurables (side MEASURE) — from the roster, keys are the sheet columns.
   // `asc` marks lower-is-better: a 40 sorts fastest first by default.
@@ -34264,7 +34790,7 @@ function apiStatsFilters_() {
 }
 
 
-===== src/StatsCoverage.js =====
+===== StatsCoverage.js =====
 /**
  * UCBAC Stats — StatsCoverage.gs
  *
@@ -34529,7 +35055,7 @@ function statsCovWriteDirect_(marks) {
 }
 
 
-===== src/StatsExtract.js =====
+===== StatsExtract.js =====
 /**
  * UCBAC Stats — StatsExtract.gs
  *
@@ -34615,8 +35141,10 @@ function seRules_(ctx) {
     'Sacks and TFL (tackles for loss) are separate; do not count a sack as a TFL unless the document does.',
     'Passing: PassComp is completions, PassAtt attempts, PassInt interceptions THROWN. Int is interceptions CAUGHT by a defender.',
     'PassDef is pass break-ups. FF forced fumbles, FR fumble recoveries, DefTD defensive touchdowns. RushFum/RecFum are fumbles lost.',
-    '"2-point conversions" have no field: leave them out. Kick returns KR/KRYds, punt returns PR/PRYds.',
-    'Blocks is blocked kicks - a punt, field goal or extra point stopped at the line. Box scores often print it under defense; it belongs in Blocks.',
+    'TwoPointConversions counts successful two-point conversions for the scorer only, whether a run, catch or method unspecified. Do not credit the passer. Failed attempts are not successes.',
+    'Conversion plays do not count as PassAtt, PassComp, PassYds, PassTD, RushAtt, RushYds, RushTD, Rec, RecYds or RecTD. Do not add them to ordinary play totals.',
+    'Kick returns KR/KRYds, punt returns PR/PRYds.',
+    'Blocks preserves the combined blocked-kick total (punts, field goals and extra points). BlockedPunts records explicitly identified blocked punts only; it is a subset, never add it to Blocks. If only a blocked punt is reported, put it in BlockedPunts and omit Blocks unless a combined total is explicitly given. Never infer punt type from generic blocks.',
     'Skip rows that are team totals, opponents, or coaches. A name written twice in different sections is one player.',
     'jersey: the number beside the name if shown. name: the player as written, with the roster\'s spelling when one roster name clearly matches.',
     'team, opponent, week, gameDate, teamScore, opponentScore: fill from the document when present, else omit.'
@@ -34900,7 +35428,7 @@ function menuStatsInboxOpen_() {
 }
 
 
-===== src/StatsImport.js =====
+===== StatsImport.js =====
 /**
  * UCBAC Stats — StatsImport.gs
  *
@@ -34938,7 +35466,7 @@ const STATSIMPORT = {
            'Rec', 'RecYds', 'RecTD', 'RecFum', 'Pancakes',
            'TackleSolo', 'TackleAssist', 'TFL', 'Sacks', 'Int', 'FF', 'FR', 'PassDef', 'DefTD',
            'FGM', 'FGA', 'XPM', 'XPA', 'Punts', 'PuntYds', 'KR', 'KRYds', 'PR', 'PRYds',
-           'Blocks'],
+           'Blocks', 'BlockedPunts', 'TwoPointConversions'],
   OUT: ['Result', 'Note'],
   // an administrator's import is the official line
   SOURCE: 'COACH_ENTRY',
@@ -34956,7 +35484,11 @@ const STATSIMPORT = {
   }
 };
 
-function siHeader_() { return STATSIMPORT.KEYS.concat(STATSIMPORT.FIELDS, STATSIMPORT.OUT); }
+function siHeader_() {
+  return STATSIMPORT.KEYS.concat(STATSIMPORT.FIELDS.filter(function (f) {
+    return f !== 'BlockedPunts' && f !== 'TwoPointConversions';
+  }), STATSIMPORT.OUT, ['BlockedPunts', 'TwoPointConversions']);
+}
 
 /** letters and digits only, lower case: "Ke'Mar Parsons" and "kemar parsons" agree */
 function siNorm_(v) { return String(v === null || v === undefined ? '' : v).toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -34982,6 +35514,12 @@ function siEnsureTab_() {
 function siAppend_(rows) {
   if (!rows || !rows.length) return 0;
   siEnsureTab_();
+  const head = tabHeader_(STATSIMPORT.TAB);
+  ['BlockedPunts', 'TwoPointConversions'].forEach(function (f) {
+    if (head.indexOf(f) < 0 && rows.some(function (r) {
+      return r[f] !== undefined && r[f] !== null && r[f] !== '';
+    })) throw new Error('StatsImport has no ' + f + ' column. Run the approved schema migration before importing this field.');
+  });
   return appendRows_(STATSIMPORT.TAB, rows);
 }
 
@@ -35141,8 +35679,9 @@ function siLines_(row, playerId) {
       if (STATSIMPORT.FIELDS.indexOf(f) < 0) return;
       const v = row[f];
       if (v === '' || v === null || v === undefined) return;
-      const n = numOrNull_(v);
-      if (n === null) { bad = bad || (f + ' "' + v + '" is not a number'); return; }
+      var n;
+      try { n = teamAdminStat_(f, v); }
+      catch (e) { bad = bad || e.message; return; }
       line[f] = n; any = true;
     });
     if (any) out.push(line);
@@ -35335,7 +35874,614 @@ function statsImportDryRun_()    { Logger.log(siRun_(false)); }
 function statsImportApply_()     { Logger.log(siRun_(true)); }
 
 
-===== src/TeamAdmin.js =====
+===== StatsImportQueue.js =====
+/** Bounded connector inbox. No endpoint, credentials, legacy StatsImport scan,
+ * or new trigger. The existing sweepRebuild invokes the private worker.
+ * Queue and receipt tabs are private parts of the existing database workbook.
+ */
+const STATQUEUE = {
+  queue:'StatsImportQueue', receipts:'StatsImportReceipts', owner:'contact@example.invalid',
+  enabled:'UCBAC_STAT_QUEUE_ENABLED_V1', maxRows:2000, maxLines:40, maxAttempts:3,
+  input:['BatchID','State','SeasonID','TeamID','GameID','SourceKind','SubmittedBy',
+    'AuthorizationRef','SourceEvidenceJSON','LinesJSON','PayloadSHA256','SubmittedAt'],
+  output:['StartedAt','CompletedAt','Attempts','ReceiptID','ResultJSON','Error','WorkerRunID','FrozenSHA256'],
+  receipt:['BatchID','PayloadSHA256','State','FrozenPayloadJSON','BeforeJSON','AfterJSON',
+    'ReceiptJSON','StartedAt','CompletedAt','Error','WorkerRunID','RebuildState']
+};
+var __statQueueContext = null;
+function sqAssert_(condition, code) { if (!condition) throw new Error('QUEUE_' + code); }
+function sqActor_() {
+  // Never turn an execute-as-owner web visitor or a portal token into a queue
+  // operator. Only the existing Google owner identity may run setup/worker.
+  const active = s_(Session.getActiveUser().getEmail()).toLowerCase();
+  const effective = s_(Session.getEffectiveUser().getEmail()).toLowerCase();
+  const me = accountsWhoami_();
+  sqAssert_(!__AUTH_BOUND && active === STATQUEUE.owner && effective === active &&
+    s_(me.email).toLowerCase() === active && me.role === 'ADMIN','OWNER_REQUIRED');
+  return {email:active,role:'ADMIN',teamId:''};
+}
+function sqHash_(text) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,text,Utilities.Charset.UTF_8)
+    .map(function (b) { return (b & 255).toString(16).padStart(2,'0'); }).join('');
+}
+function sqJSON_(text, code) {
+  sqAssert_(typeof text === 'string' && text.length <= 40000,code);
+  try { return JSON.parse(text); } catch (_) { throw new Error('QUEUE_' + code); }
+}
+function sqKeys_(obj, keys, code) {
+  sqAssert_(obj && typeof obj === 'object' && !Array.isArray(obj) &&
+    Object.keys(obj).sort().join('|') === keys.slice().sort().join('|'),code);
+}
+function sqISO_(v) { return typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v) && isFinite(Date.parse(v)); }
+function sqInput_(row) {
+  const p = {};
+  STATQUEUE.input.forEach(function (h) { if (h !== 'State' && h !== 'PayloadSHA256') p[h] = row[h]; });
+  return p;
+}
+/** Public protocol: SHA256 UTF-8 JSON.stringify of these ten string values.
+ * State, digest and all worker-owned outputs are excluded from the digest. */
+function sqPayloadText_(p) {
+  return JSON.stringify(['BatchID','SeasonID','TeamID','GameID','SourceKind','SubmittedBy',
+    'AuthorizationRef','SourceEvidenceJSON','LinesJSON','SubmittedAt'].map(function (h) { return p[h]; }));
+}
+function sqTable_(name, headers) {
+  const sh = getTab_(name), values = sh.getDataRange().getValues();
+  sqAssert_(values.length <= STATQUEUE.maxRows,'TABLE_BOUND');
+  const head = values[0].map(String);
+  sqAssert_(JSON.stringify(head) === JSON.stringify(headers),'HEADERS');
+  const formulas = sh.getDataRange().getFormulas();
+  return {sh:sh,head:head,rows:values.slice(1).map(function (v,i) {
+    const r = {__row:i+2,__formulas:formulas[i+1] || []};
+    head.forEach(function (h,j) { r[h] = v[j] === undefined ? '' : v[j]; });
+    return r;
+  })};
+}
+function sqEnvelope_(row) {
+  const p = sqInput_(row);
+  Object.keys(p).forEach(function (h) { sqAssert_(typeof p[h] === 'string','LITERAL_STRINGS'); });
+  sqAssert_(!(row.__formulas || []).slice(0,12).some(Boolean),'FORMULA_INPUT');
+  sqAssert_(/^SQ-[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/.test(p.BatchID),'BATCH_ID');
+  sqAssert_(/^SEA-\d{4}$/.test(p.SeasonID) && /^TEAM-\d{3}$/.test(p.TeamID) &&
+    /^GAME-\d{4}-\d{4}$/.test(p.GameID),'SCOPE_IDS');
+  sqAssert_(p.SubmittedBy === STATQUEUE.owner && p.AuthorizationRef.trim().length >= 8 &&
+    p.AuthorizationRef.length <= 1000 && sqISO_(p.SubmittedAt),'AUTHORIZATION');
+  sqAssert_(['COACH_VERIFIED','MAXPREPS','VERIFY_ONLY'].indexOf(p.SourceKind) >= 0,'SOURCE_KIND');
+  const text = sqPayloadText_(p);
+  sqAssert_(text.length <= 45000 && /^[a-f0-9]{64}$/.test(row.PayloadSHA256) &&
+    sqHash_(text) === row.PayloadSHA256,'DIGEST');
+  return {payload:p,text:text,hash:row.PayloadSHA256};
+}
+/** One-game cumulative difference only. Both source snapshots and every prior
+ * game's unchanged source values are frozen in the ordinary hashed payload.
+ * A season total alone cannot distinguish a new game from an old correction. */
+function sqSeasonDelta_(p, pid, category, field, proof, evidence, stats, ledger) {
+  const additive = ['PassAtt','PassComp','PassYds','PassTD','PassInt','RushAtt','RushYds','RushTD','RushFum',
+    'Rec','RecYds','RecTD','RecFum','Pancakes','TackleSolo','TackleAssist','TFL','Sacks','Int','FF','FR',
+    'PassDef','DefTD','FGM','FGA','XPM','XPA','Punts','PuntYds','KR','KRYds','PR','PRYds',
+    'Blocks','BlockedPunts','TwoPointConversions'];
+  sqAssert_(additive.indexOf(field) >= 0 && proof.value !== null,'SEASON_DELTA_ADDITIVE');
+  const d = proof.delta;
+  sqKeys_(d,['seasonId','teamId','playerId','category','field','baseline','current','priorGames'],'SEASON_DELTA_SHAPE');
+  sqAssert_(d.seasonId === p.SeasonID && d.teamId === p.TeamID && d.playerId === pid &&
+    d.category === category && d.field === field,'SEASON_DELTA_SCOPE');
+  function day(v) {
+    const result = v instanceof Date ? Utilities.formatDate(v,db_().getSpreadsheetTimeZone(),'yyyy-MM-dd') :
+      (typeof v === 'string' ? (v.match(/^\d{4}-\d{2}-\d{2}(?:$|T| )/) || [''])[0].slice(0,10) : '');
+    sqAssert_(/^\d{4}-\d{2}-\d{2}$/.test(result) && isFinite(Date.parse(result + 'T00:00:00Z')) &&
+      new Date(result + 'T00:00:00Z').toISOString().slice(0,10) === result,'SEASON_DELTA_DATE');
+    return result;
+  }
+  function numeric(v) {
+    const half = ['Sacks','TFL'].indexOf(field) >= 0;
+    sqAssert_(typeof v === 'number' && isFinite(v) && Math.abs(v) <= 100000 &&
+      Number.isInteger(v * (half ? 2 : 1)) &&
+      (TEAMADMIN.SIGNED_FIELDS.indexOf(field) >= 0 || v >= 0),'SEASON_DELTA_NUMBER');
+    return v;
+  }
+  function reference(index, locator) {
+    sqAssert_(Number.isInteger(index) && index >= 0 && index < evidence.references.length &&
+      typeof locator === 'string' && locator.length > 0 && locator.length <= 500,'SEASON_DELTA_REFERENCE');
+  }
+  function snapshot(s) {
+    sqKeys_(s,['reference','locator','cutoffGameId','cutoffDate','observedAt','total','gameIds'],'SEASON_DELTA_SNAPSHOT');
+    reference(s.reference,s.locator); day(s.cutoffDate); numeric(s.total);
+    sqAssert_(sqISO_(s.observedAt) && Date.parse(s.observedAt) <= Date.parse(evidence.references[s.reference].retrievedAt) &&
+      s.observedAt.slice(0,10) >= s.cutoffDate && Array.isArray(s.gameIds) && s.gameIds.length <= 40 &&
+      s.gameIds.every(function (id) { return typeof id === 'string' && /^GAME-\d{4}-\d{4}$/.test(id); }) &&
+      new Set(s.gameIds).size === s.gameIds.length,'SEASON_DELTA_SNAPSHOT');
+  }
+  snapshot(d.baseline); snapshot(d.current);
+  const games = rowsOf_(CONFIG.TABS.GAMES).filter(function (g) {
+    return s_(g.SeasonID) === p.SeasonID && [s_(g.HomeTeamID),s_(g.AwayTeamID)].indexOf(p.TeamID) >= 0 &&
+      s_(g.Status).toUpperCase() !== 'CANCELLED';
+  }).map(function (g) { return {id:s_(g.GameID),date:day(g.GameDate),status:s_(g.Status).toUpperCase()}; });
+  sqAssert_(new Set(games.map(function (g) { return g.id; })).size === games.length,'SEASON_DELTA_GAME_DUPLICATE');
+  const target = games.filter(function (g) { return g.id === p.GameID; });
+  sqAssert_(target.length === 1 && target[0].status === 'FINAL','SEASON_DELTA_FINAL');
+  const targetDay = target[0].date;
+  sqAssert_(games.filter(function (g) { return g.date === targetDay; }).length === 1,'SEASON_DELTA_SAME_DAY');
+  const prior = games.filter(function (g) { return g.date < targetDay; }).sort(function (a,b) { return a.date.localeCompare(b.date) || a.id.localeCompare(b.id); });
+  sqAssert_(prior.length <= 39 && prior.every(function (g) { return g.status === 'FINAL'; }),'SEASON_DELTA_PRIOR_SCHEDULE');
+  const ids = prior.map(function (g) { return g.id; });
+  sqAssert_(JSON.stringify(d.baseline.gameIds) === JSON.stringify(ids) &&
+    JSON.stringify(d.current.gameIds) === JSON.stringify(ids.concat([p.GameID])) &&
+    d.current.cutoffGameId === p.GameID && d.current.cutoffDate === targetDay &&
+    d.baseline.cutoffGameId === (prior.length ? prior[prior.length-1].id : '') &&
+    (prior.length ? d.baseline.cutoffDate === prior[prior.length-1].date : d.baseline.cutoffDate < targetDay),
+    'SEASON_DELTA_ONE_GAME');
+  sqAssert_(d.baseline.reference !== d.current.reference &&
+    d.baseline.observedAt.slice(0,10) < targetDay &&
+    Date.parse(d.baseline.observedAt) < Date.parse(d.current.observedAt) &&
+    proof.reference === d.current.reference && proof.locator === d.current.locator,'SEASON_DELTA_CUTOFF');
+  // A current snapshot captured after another dated game cannot claim its
+  // cumulative total stops at this earlier game without extra attribution.
+  const next = games.filter(function (g) { return g.date > targetDay; }).sort(function (a,b) { return a.date.localeCompare(b.date); })[0];
+  sqAssert_(!next || d.current.observedAt.slice(0,10) < next.date,'SEASON_DELTA_LATER_GAME');
+  sqAssert_(Array.isArray(d.priorGames) && d.priorGames.length === prior.length,'SEASON_DELTA_RECONCILIATION');
+  let sum = 0;
+  d.priorGames.forEach(function (entry,i) {
+    sqKeys_(entry,['gameId','gameDate','value','sourceType','baselineReference','baselineLocator',
+      'baselineValue','currentReference','currentLocator','currentValue'],'SEASON_DELTA_PRIOR_SHAPE');
+    sqAssert_(entry.gameId === prior[i].id && entry.gameDate === prior[i].date,'SEASON_DELTA_PRIOR_SCOPE');
+    reference(entry.baselineReference,entry.baselineLocator); reference(entry.currentReference,entry.currentLocator);
+    sqAssert_(entry.baselineReference === d.baseline.reference && entry.currentReference === d.current.reference &&
+      numeric(entry.baselineValue) === numeric(entry.currentValue) && numeric(entry.value) === entry.baselineValue,
+      'SEASON_DELTA_PRIOR_REVISION');
+    const rows = stats.filter(function (r) {
+      return s_(r.SeasonID) === p.SeasonID && s_(r.TeamID) === p.TeamID && s_(r.GameID) === entry.gameId &&
+        taReviewCanonical_(r.PlayerID) === pid && s_(r.category) === category && s_(r.grain) === 'GAME';
+    });
+    sqAssert_(rows.length === 1 && typeof entry.sourceType === 'string' && s_(rows[0].SourceType) === entry.sourceType &&
+      rows[0][field] !== '' && rows[0][field] !== null && rows[0][field] !== undefined &&
+      teamAdminSame_(rows[0][field],entry.value),'SEASON_DELTA_BASELINE');
+    const covered = ledger[taReviewKey_(taReviewScope_(rows[0]))] || {};
+    sqAssert_(!provisionalSource_(rows[0].SourceType) ||
+      (Object.prototype.hasOwnProperty.call(covered,field) && teamAdminSame_(covered[field],entry.value)),
+      'SEASON_DELTA_UNVERIFIED_BASELINE');
+    sqAssert_(!hasTab_(CONFIG.TABS.CORRECTIONS) || !rowsOf_(CONFIG.TABS.CORRECTIONS).some(function (r) {
+      return profileCorrectionStatus_(r) === 'PENDING' && s_(r.SeasonID) === p.SeasonID &&
+        s_(r.TeamID) === p.TeamID && s_(r.GameID) === entry.gameId &&
+        taReviewCanonical_(r.PlayerID) === pid && s_(r.Field) === field;
+    }),'SEASON_DELTA_PENDING_PRIOR_CORRECTION');
+    sum += entry.value;
+  });
+  sqAssert_(sum === d.baseline.total && d.current.total - d.baseline.total === proof.value,'SEASON_DELTA_ARITHMETIC');
+}
+function sqPreflight_(p) {
+  const games = rowsOf_(CONFIG.TABS.GAMES).filter(function (g) { return s_(g.GameID) === p.GameID; });
+  sqAssert_(games.length === 1 && s_(games[0].SeasonID) === p.SeasonID &&
+    [s_(games[0].HomeTeamID),s_(games[0].AwayTeamID)].indexOf(p.TeamID) >= 0,'GAME_SCOPE');
+  const evidence = sqJSON_(p.SourceEvidenceJSON,'EVIDENCE_JSON');
+  sqKeys_(evidence,['schemaVersion','verifiedBy','verifiedAt','references','notes'],'EVIDENCE_SHAPE');
+  sqAssert_(evidence.schemaVersion === 1 && evidence.verifiedBy === STATQUEUE.owner &&
+    sqISO_(evidence.verifiedAt) && Array.isArray(evidence.references) && evidence.references.length >= 1 &&
+    evidence.references.length <= 20 && typeof evidence.notes === 'string' && evidence.notes.trim().length >= 8,'EVIDENCE');
+  evidence.references.forEach(function (ref) {
+    sqKeys_(ref,['url','locator','retrievedAt'],'REFERENCE_SHAPE');
+    sqAssert_(typeof ref.url === 'string' && /^https:\/\/[^\s]{1,1500}$/.test(ref.url) &&
+      typeof ref.locator === 'string' && ref.locator.length > 0 && ref.locator.length <= 500 &&
+      sqISO_(ref.retrievedAt),'REFERENCE');
+    if (p.SourceKind === 'MAXPREPS') sqAssert_(/^https:\/\/(?:www\.)?maxpreps\.com\//i.test(ref.url),'MAXPREPS_REFERENCE');
+  });
+  const lines = sqJSON_(p.LinesJSON,'LINES_JSON');
+  sqAssert_(Array.isArray(lines) && lines.length <= STATQUEUE.maxLines,'LINE_BOUND');
+  if (p.SourceKind === 'VERIFY_ONLY') {
+    sqAssert_(lines.length === 0,'VERIFY_NO_STATS');
+    return {rows:[],before:[],after:[],canonical:[]};
+  }
+  sqAssert_(lines.length > 0,'EMPTY_IMPORT');
+  const stats = rowsOf_(CONFIG.TABS.PLAYER_STATS), head = tabHeader_(CONFIG.TABS.PLAYER_STATS);
+  const roster = rowsOf_(CONFIG.TABS.PLAYER_SEASONS).filter(function (r) {
+    return s_(r.SeasonID) === p.SeasonID && s_(r.TeamID) === p.TeamID;
+  });
+  const ledger = taReviewLedger_(), sourceLedger = taReviewSources_();
+  const seen = {}, result = {rows:[],before:[],after:[],canonical:[]};
+  lines.forEach(function (line) {
+    sqKeys_(line,['playerId','category','fields','expected','coverage'],'LINE_SHAPE');
+    sqAssert_(typeof line.playerId === 'string' && /^PLY-\d{6}$/.test(line.playerId),'PLAYER_ID');
+    const pid = taReviewCanonical_(line.playerId), category = line.category;
+    sqAssert_(typeof category === 'string' && Object.prototype.hasOwnProperty.call(TEAMADMIN.CATEGORIES,category),'CATEGORY');
+    const fields = teamAdminStatFields_(category).filter(function (f) { return head.indexOf(f) >= 0; });
+    const key = pid + '|' + category;
+    sqAssert_(!seen[key],'DUPLICATE_INPUT'); seen[key] = true;
+    sqAssert_(roster.filter(function (r) { return taReviewCanonical_(r.PlayerID) === pid; }).length === 1,'ROSTER');
+    sqAssert_(line.fields && typeof line.fields === 'object' && !Array.isArray(line.fields) &&
+      Object.keys(line.fields).length > 0,'FIELDS');
+    sqKeys_(line.coverage,Object.keys(line.fields),'COVERAGE_FIELDS');
+    const row = {playerId:pid,category:category};
+    Object.keys(line.fields).forEach(function (f) {
+      sqAssert_(fields.indexOf(f) >= 0,'UNSUPPORTED_FIELD');
+      const value = line.fields[f];
+      sqAssert_(value === null || (typeof value === 'number' && isFinite(value)),'NUMBER_TYPE');
+      const validated = teamAdminStat_(f,value);
+      const proof = line.coverage[f];
+      sqKeys_(proof,proof && proof.method === 'SEASON_DELTA' ? ['reference','locator','value','method','delta'] :
+        ['reference','locator','value','method'],'COVERAGE_SHAPE');
+      sqAssert_(Number.isInteger(proof.reference) && proof.reference >= 0 && proof.reference < evidence.references.length &&
+        typeof proof.locator === 'string' && proof.locator.length > 0 && proof.locator.length <= 500 &&
+        proof.value === value && ['EXPLICIT','TOTAL_MINUS_ASSIST','UNSPECIFIED_TACKLE_SOLO','EXPLICIT_CLEAR','SEASON_DELTA'].indexOf(proof.method) >= 0,'COVERAGE');
+      sqAssert_(value !== null || proof.method === 'EXPLICIT_CLEAR','CLEAR_EVIDENCE');
+      sqAssert_(proof.method !== 'TOTAL_MINUS_ASSIST' || (f === 'TackleSolo' && p.SourceKind === 'COACH_VERIFIED'),'DERIVATION');
+      sqAssert_(proof.method !== 'UNSPECIFIED_TACKLE_SOLO' || f === 'TackleSolo','TACKLE_KIND');
+      if (proof.method === 'SEASON_DELTA') sqSeasonDelta_(p,pid,category,f,proof,evidence,stats,ledger);
+      row[f] = validated;
+    });
+    const hits = stats.filter(function (r) {
+      return s_(r.GameID) === p.GameID && s_(r.SeasonID) === p.SeasonID && s_(r.TeamID) === p.TeamID &&
+        s_(r.grain) === 'GAME' && s_(r.category) === category && taReviewCanonical_(r.PlayerID) === pid;
+    });
+    sqAssert_(hits.length <= 1,'DUPLICATE_PRODUCTION');
+    const exists = hits.length === 1;
+    sqAssert_(line.expected && line.expected.exists === exists,'STALE_EXISTENCE');
+    if (exists) {
+      sqKeys_(line.expected,['exists','sourceType','values'],'EXPECTED_SHAPE');
+      sqKeys_(line.expected.values,fields,'EXPECTED_FIELDS');
+      sqAssert_(typeof line.expected.sourceType === 'string' && s_(hits[0].SourceType) === line.expected.sourceType,'STALE_SOURCE');
+      fields.forEach(function (f) {
+        const expected = line.expected.values[f];
+        sqAssert_(expected === null || (typeof expected === 'number' && isFinite(expected)),'EXPECTED_NUMBER');
+        sqAssert_(teamAdminSame_(hits[0][f],expected),'STALE_VALUE');
+      });
+      if (p.SourceKind === 'MAXPREPS') {
+        const scopeKey = taReviewKey_(taReviewScope_(hits[0]));
+        const covered = ledger[scopeKey] || {}, sources = sourceLedger[scopeKey] || {};
+        Object.keys(line.fields).forEach(function (f) {
+          const coveredCurrent = Object.prototype.hasOwnProperty.call(covered,f) &&
+            teamAdminSame_(hits[0][f],covered[f]);
+          const priorMaxPreps = coveredCurrent && sources[f] === 'MAXPREPS';
+          const protectedField = !priorMaxPreps && (coveredCurrent ||
+            (!provisionalSource_(hits[0].SourceType) && hits[0][f] !== '' &&
+              hits[0][f] !== null && hits[0][f] !== undefined));
+          sqAssert_(!protectedField || teamAdminSame_(hits[0][f],line.fields[f]),'VERIFIED_UCBAC_PRECEDENCE');
+        });
+      }
+    } else sqKeys_(line.expected,['exists'],'EXPECTED_NEW_SHAPE');
+    const before = {playerId:pid,category:category,exists:exists,sourceType:exists?s_(hits[0].SourceType):'',values:{}};
+    fields.forEach(function (f) { before.values[f] = exists && hits[0][f] !== undefined && hits[0][f] !== '' ? hits[0][f] : null; });
+    const after = JSON.parse(JSON.stringify(before)); after.exists = true;
+    Object.keys(line.fields).forEach(function (f) { after.values[f] = line.fields[f]; });
+    result.rows.push(row); result.before.push(before); result.after.push(after);
+    result.canonical.push({submittedPlayerId:line.playerId,playerId:pid,category:category});
+  });
+  sqAssert_(JSON.stringify(result.before).length <= 45000 && JSON.stringify(result.after).length <= 45000,'SNAPSHOT_BOUND');
+  return result;
+}
+function sqCell_(v) {
+  if (v === null || v === undefined || v === '') return {};
+  if (v instanceof Date) {
+    const local = Utilities.formatDate(v,db_().getSpreadsheetTimeZone(),"yyyy-MM-dd'T'HH:mm:ss.SSS");
+    return {userEnteredValue:{numberValue:Date.parse(local + 'Z') / 86400000 + 25569}};
+  }
+  if (typeof v === 'number') { sqAssert_(isFinite(v),'NONFINITE'); return {userEnteredValue:{numberValue:v}}; }
+  if (typeof v === 'boolean') return {userEnteredValue:{boolValue:v}};
+  sqAssert_(String(v).length <= 45000,'CELL_BOUND');
+  return {userEnteredValue:{stringValue:String(v)}};
+}
+function sqPut_(requests, name, row, values) {
+  const sh = getTab_(name), capacity = sh.getMaxRows() + requests.reduce(function (n,r) {
+    return n + (r.appendDimension && r.appendDimension.sheetId === sh.getSheetId() ? r.appendDimension.length : 0);
+  },0), needed = row - capacity;
+  if (needed > 0) requests.push({appendDimension:{sheetId:sh.getSheetId(),dimension:'ROWS',length:needed}});
+  requests.push({updateCells:{start:{sheetId:sh.getSheetId(),rowIndex:row-1,columnIndex:0},
+    rows:[{values:values.map(sqCell_)}],fields:'userEnteredValue'}});
+}
+function sqObject_(requests, name, row, obj, head) {
+  head = head || tabHeader_(name);
+  sqPut_(requests,name,row,head.map(function (h) { return obj[h] === undefined ? '' : obj[h]; }));
+}
+function sqAtomic_(requests) {
+  sqAssert_(LockService.getScriptLock().hasLock(),'LOCK_REQUIRED');
+  sqAssert_(requests.length > 0 && requests.length <= 500 && JSON.stringify(requests).length < 1800000,'TRANSACTION_BOUND');
+  // Queue metadata also changes this workbook's public source version. Reuse
+  // the existing rebuild so the public completion receipt cannot go stale.
+  markDirty_('queue-metadata');
+  SpreadsheetApp.flush();
+  Sheets.Spreadsheets.batchUpdate({requests:requests},CONFIG.DB_ID);
+  __tableCache = {};
+}
+function sqQueueRow_(row, patch) { return Object.assign({},row,patch); }
+function sqReceiptRow_(id) {
+  const hits = sqTable_(STATQUEUE.receipts,STATQUEUE.receipt).rows.filter(function (r) { return r.BatchID === id; });
+  sqAssert_(hits.length <= 1,'DUPLICATE_RECEIPT'); return hits[0] || null;
+}
+function sqFinish_(context, writer) {
+  const p = context.env.payload, now = new Date().toISOString(), requests = [];
+  const corrections = writer ? taReviewCorrectionPlan_(context.me,p.SeasonID,p.TeamID,p.GameID,writer.accepted) : {updates:[],audit:[]};
+  if (writer) sqAssert_(!writer.refused.length,'WRITER_REFUSED');
+  if (writer) context.plan.after.forEach(function (snapshot) {
+    const appended = writer.appends.find(function (r) {
+      return taReviewCanonical_(r.PlayerID) === snapshot.playerId && s_(r.category) === snapshot.category;
+    });
+    const values = appended ? null : writer.values.slice(1).find(function (r) {
+      return s_(r[writer.col.GameID]) === p.GameID && s_(r[writer.col.SeasonID]) === p.SeasonID &&
+        s_(r[writer.col.TeamID]) === p.TeamID && s_(r[writer.col.grain]) === 'GAME' &&
+        taReviewCanonical_(r[writer.col.PlayerID]) === snapshot.playerId &&
+        s_(r[writer.col.category]) === snapshot.category;
+    });
+    sqAssert_(!!(appended || values),'AFTER_IMAGE');
+    snapshot.sourceType = s_(appended ? appended.SourceType : values[writer.col.SourceType]);
+    Object.keys(snapshot.values).forEach(function (f) {
+      const value = appended ? appended[f] : values[writer.col[f]];
+      snapshot.values[f] = value === '' || value === undefined || value === null ? null : value;
+    });
+  });
+  const receipt = {schemaVersion:1,batchId:p.BatchID,payloadSHA256:context.env.hash,
+    receiptId:'SQR-' + p.BatchID,workerRunId:context.runId,committedAt:now,
+    mode:p.SourceKind,lines:writer?context.plan.rows.length:0,saved:writer?writer.saved:0,
+    newRows:writer?writer.appends.length:0,updatedRows:writer?Object.keys(writer.touched).length:0,
+    reconciledCorrections:corrections.audit.length,canonicalKeys:context.plan.canonical,
+    sourceEvidenceSHA256:sqHash_(p.SourceEvidenceJSON),rebuildState:'DIRTY'};
+  const audit = writer ? writer.audit.concat(corrections.audit) : [];
+  audit.push(auditRow_(context.me,'STATS_QUEUE_COMMIT','StatsImportBatch',p.BatchID,'Receipt','',
+    JSON.stringify(receipt),'Immutable source/coverage snapshot in StatsImportReceipts; no notification'));
+  // All stat mutations, v233 audit/coverage, correction decisions, queue state
+  // and successful receipt are a SINGLE Sheets transaction. Lost replies are
+  // recovered by reading this same receipt; the writer is never replayed.
+  if (writer) {
+    Object.keys(writer.touched).forEach(function (at) { sqPut_(requests,CONFIG.TABS.PLAYER_STATS,Number(at)+1,writer.values[Number(at)]); });
+    const start = getTab_(CONFIG.TABS.PLAYER_STATS).getLastRow()+1;
+    writer.appends.forEach(function (obj,i) { sqObject_(requests,CONFIG.TABS.PLAYER_STATS,start+i,obj,writer.head); });
+    corrections.updates.forEach(function (u) {
+      const sh = getTab_(CONFIG.TABS.CORRECTIONS), col = tabHeader_(CONFIG.TABS.CORRECTIONS).indexOf(u.field);
+      sqAssert_(col >= 0,'CORRECTION_HEADER');
+      requests.push({updateCells:{start:{sheetId:sh.getSheetId(),rowIndex:u.row-1,columnIndex:col},rows:[{values:[sqCell_(u.value)]}],fields:'userEnteredValue'}});
+    });
+  }
+  const auditStart = getTab_(CONFIG.TABS.AUDIT).getLastRow()+1;
+  audit.forEach(function (obj,i) { sqObject_(requests,CONFIG.TABS.AUDIT,auditStart+i,obj); });
+  const done = sqQueueRow_(context.queue,{State:'PROCESSED',CompletedAt:now,ReceiptID:receipt.receiptId,
+    ResultJSON:JSON.stringify(receipt),Error:'',FrozenSHA256:context.env.hash});
+  sqObject_(requests,STATQUEUE.queue,context.queue.__row,done,STATQUEUE.input.concat(STATQUEUE.output));
+  const record = Object.assign({},context.record,{State:'PROCESSED',AfterJSON:JSON.stringify(context.plan.after),
+    ReceiptJSON:JSON.stringify(receipt),CompletedAt:now,Error:'',RebuildState:receipt.rebuildState});
+  sqObject_(requests,STATQUEUE.receipts,context.record.__row,record,STATQUEUE.receipt);
+  if (writer) { teamAdminBustCache_(p.SeasonID); markDirty_('stats'); }
+  sqAtomic_(requests);
+  return receipt;
+}
+function sqCommitWriter_(me, writer) {
+  sqAssert_(__statQueueContext && __statQueueContext.me.email === me.email,'CONTEXT_REQUIRED');
+  return sqFinish_(__statQueueContext,writer);
+}
+function sqProcess_(row, me, runId) {
+  let record = null, env;
+  try {
+    env = sqEnvelope_(row);
+    record = sqReceiptRow_(row.BatchID);
+    if (record) {
+      sqAssert_(record.PayloadSHA256 === env.hash && record.FrozenPayloadJSON === env.text,'IMMUTABLE_BATCH');
+      if (record.State === 'PROCESSED') {
+        const r = sqJSON_(record.ReceiptJSON,'RECEIPT_JSON'), requests = [];
+        sqObject_(requests,STATQUEUE.queue,row.__row,sqQueueRow_(row,{State:'PROCESSED',ReceiptID:r.receiptId,
+          CompletedAt:record.CompletedAt,ResultJSON:record.ReceiptJSON,Error:'',FrozenSHA256:record.PayloadSHA256}),STATQUEUE.input.concat(STATQUEUE.output));
+        sqAtomic_(requests); return r;
+      }
+    }
+    const attempts = Number(row.Attempts || 0)+1;
+    sqAssert_(attempts <= STATQUEUE.maxAttempts,'ATTEMPTS_EXHAUSTED');
+    const plan = sqPreflight_(env.payload), now = new Date().toISOString();
+    const requests = [];
+    const queued = sqQueueRow_(row,{State:'PROCESSING',StartedAt:now,Attempts:attempts,Error:'',WorkerRunID:runId,FrozenSHA256:env.hash});
+    record = Object.assign({},record || {},{BatchID:row.BatchID,PayloadSHA256:env.hash,State:'PROCESSING',
+      FrozenPayloadJSON:env.text,BeforeJSON:JSON.stringify(plan.before),AfterJSON:'',ReceiptJSON:'',
+      StartedAt:now,CompletedAt:'',Error:'',WorkerRunID:runId,RebuildState:'NOT_COMMITTED',
+      __row:record?record.__row:getTab_(STATQUEUE.receipts).getLastRow()+1});
+    // Recovered PROCESSING requests must have the same original preimage.
+    // sqPreflight already compared it with current production under the lock.
+    sqObject_(requests,STATQUEUE.queue,row.__row,queued,STATQUEUE.input.concat(STATQUEUE.output));
+    sqObject_(requests,STATQUEUE.receipts,record.__row,record,STATQUEUE.receipt);
+    sqAtomic_(requests);
+    __statQueueContext = {queue:queued,record:record,env:env,plan:plan,me:me,runId:runId};
+    if (env.payload.SourceKind === 'VERIFY_ONLY') return sqFinish_(__statQueueContext,null);
+    return teamAdminWriteStats_(me,env.payload.GameID,env.payload.TeamID,plan.rows,
+      {sourceType:env.payload.SourceKind === 'COACH_VERIFIED'?'COACH_ENTRY':'IMPORT',queueContext:__statQueueContext});
+  } catch (error) {
+    // A network exception can mean the atomic commit succeeded but its reply
+    // was lost. A committed receipt always wins over a local error.
+    __tableCache = {};
+    const latest = env ? sqReceiptRow_(row.BatchID) : null;
+    if (latest && latest.State === 'PROCESSED') return sqJSON_(latest.ReceiptJSON,'RECEIPT_JSON');
+    const message = /^QUEUE_[A-Z_]+$/.test(String(error.message)) ? error.message : 'QUEUE_EXECUTION_FAILED';
+    const requests = [];
+    sqObject_(requests,STATQUEUE.queue,row.__row,sqQueueRow_(row,{State:'FAILED',Error:message,
+      CompletedAt:new Date().toISOString(),Attempts:Number(row.Attempts||0)+1,WorkerRunID:runId}),STATQUEUE.input.concat(STATQUEUE.output));
+    if (latest) sqObject_(requests,STATQUEUE.receipts,latest.__row,Object.assign({},latest,{State:'FAILED',Error:message}),STATQUEUE.receipt);
+    else if (env) sqObject_(requests,STATQUEUE.receipts,getTab_(STATQUEUE.receipts).getLastRow()+1,
+      {BatchID:row.BatchID,PayloadSHA256:env.hash,State:'FAILED',FrozenPayloadJSON:env.text,
+       BeforeJSON:'',AfterJSON:'',ReceiptJSON:'',StartedAt:new Date().toISOString(),CompletedAt:'',
+       Error:message,WorkerRunID:runId,RebuildState:'NOT_COMMITTED'},STATQUEUE.receipt);
+    sqAtomic_(requests);
+    return {batchId:row.BatchID,state:'FAILED',error:message};
+  } finally { __statQueueContext = null; }
+}
+function sqWorker_() {
+  if (PropertiesService.getScriptProperties().getProperty(STATQUEUE.enabled) !== 'true') return {enabled:false};
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return {busy:true};
+  try {
+    __tableCache = {};
+    const me = sqActor_();
+    const table = sqTable_(STATQUEUE.queue,STATQUEUE.input.concat(STATQUEUE.output));
+    const row = table.rows.filter(function (r) { return r.State === 'READY' || r.State === 'PROCESSING'; })[0];
+    if (!row) return {enabled:true,ready:0};
+    if (table.rows.filter(function (r) { return r.BatchID === row.BatchID; }).length !== 1) {
+      const requests=[];
+      sqObject_(requests,STATQUEUE.queue,row.__row,sqQueueRow_(row,{State:'FAILED',Error:'QUEUE_DUPLICATE_BATCH_ID',
+        CompletedAt:new Date().toISOString()}),STATQUEUE.input.concat(STATQUEUE.output));
+      sqAtomic_(requests); return {state:'FAILED',error:'QUEUE_DUPLICATE_BATCH_ID'};
+    }
+    const result = sqProcess_(row,me,Utilities.getUuid());
+    Logger.log(JSON.stringify(result)); return result;
+  } finally { lock.releaseLock(); }
+}
+function queueImportSetup() {
+  sqActor_(); const lock = LockService.getScriptLock();
+  sqAssert_(lock.tryLock(1000),'BUSY');
+  try {
+    const requests = [];
+    [[STATQUEUE.queue,STATQUEUE.input.concat(STATQUEUE.output)],[STATQUEUE.receipts,STATQUEUE.receipt]].forEach(function (pair) {
+      const sh = hasTab_(pair[0]) ? getTab_(pair[0]) : db_().insertSheet(pair[0]);
+      const values = sh.getDataRange().getValues(), formulas = sh.getDataRange().getFormulas();
+      const blank = values.every(function (r) { return r.every(function (v) { return v === ''; }); }) &&
+        formulas.every(function (r) { return r.every(function (v) { return v === ''; }); });
+      if (blank) sqPut_(requests,pair[0],1,pair[1]);
+      else sqTable_(pair[0],pair[1]);
+      const id = sh.getSheetId(), width = pair[1].length;
+      requests.push({repeatCell:{range:{sheetId:id,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:width},
+        cell:{userEnteredFormat:{textFormat:{bold:true}},note:'Queue schema v1. Connector writes only StatsImportQueue A:L; outputs and receipts are worker-owned. Long JSON intentionally clipped; inspect full values in formula bar.'},fields:'userEnteredFormat.textFormat.bold,note'}},
+        {updateSheetProperties:{properties:{sheetId:id,gridProperties:{frozenRowCount:1}},fields:'gridProperties.frozenRowCount'}},
+        {updateDimensionProperties:{range:{sheetId:id,dimension:'COLUMNS',startIndex:0,endIndex:width},properties:{pixelSize:180},fields:'pixelSize'}},
+        {repeatCell:{range:{sheetId:id,startRowIndex:0,endRowIndex:sh.getMaxRows(),startColumnIndex:0,endColumnIndex:width},cell:{userEnteredFormat:{wrapStrategy:'CLIP'}},fields:'userEnteredFormat.wrapStrategy'}});
+    });
+    sqAtomic_(requests);
+    Logger.log(JSON.stringify({setup:true,enabled:PropertiesService.getScriptProperties().getProperty(STATQUEUE.enabled)==='true',triggers:sqTriggers_()}));
+  } finally { lock.releaseLock(); }
+}
+function sqTriggers_() {
+  return ScriptApp.getProjectTriggers().map(function (t) { return {handler:t.getHandlerFunction(),event:String(t.getEventType())}; });
+}
+function queueImportActivate() {
+  sqActor_();
+  sqTable_(STATQUEUE.queue,STATQUEUE.input.concat(STATQUEUE.output)); sqTable_(STATQUEUE.receipts,STATQUEUE.receipt);
+  sqAssert_(sqTriggers_().filter(function (t) { return t.handler === 'sweepRebuild'; }).length === 1,'EXACTLY_ONE_SWEEP_REQUIRED');
+  PropertiesService.getScriptProperties().setProperty(STATQUEUE.enabled,'true');
+  Logger.log('Queue active on existing sweepRebuild; no trigger or OAuth scope added.');
+}
+function queueImportPause() {
+  sqActor_(); PropertiesService.getScriptProperties().deleteProperty(STATQUEUE.enabled);
+  Logger.log('Queue paused; existing rebuild and unrelated triggers unchanged.');
+}
+function queueImportStatus() {
+  sqActor_(); Logger.log(JSON.stringify({enabled:PropertiesService.getScriptProperties().getProperty(STATQUEUE.enabled)==='true',triggers:sqTriggers_(),build:buildStatus_()}));
+}
+
+
+===== StatsReconcile.js =====
+/** Field-scoped official review. AuditLog is the durable claim/coverage ledger.
+ * No messages, notifications, row deletion or second stat append. Call only
+ * while holding the same script lock as teamAdminWriteStats_. */
+function taReviewCanonical_(id) {
+  return typeof m15Canonical_ === 'function' ? m15Canonical_(s_(id)) : s_(id);
+}
+function taReviewKey_(scope) {
+  return [scope.seasonId, scope.teamId, scope.gameId,
+          taReviewCanonical_(scope.playerId), scope.category].join('|');
+}
+function taReviewScope_(row) {
+  return {seasonId:s_(row.SeasonID),teamId:s_(row.TeamID),gameId:s_(row.GameID),
+          playerId:taReviewCanonical_(row.PlayerID),category:s_(row.category)};
+}
+function taReviewLedger_() {
+  const out = {};
+  if (!hasTab_(CONFIG.TABS.AUDIT)) return out;
+  rowsOf_(CONFIG.TABS.AUDIT).forEach(function (r) {
+    if (s_(r.Action) !== 'STATS_RECONCILE') return;
+    // Header names in older imports differ. Never infer coverage from a
+    // free-text STATS_UPDATE entry or a number merely present in production.
+    try {
+      const scope = JSON.parse(r.Notes);
+      const value = JSON.parse(r.NewValue);
+      if (scope.reviewSchema !== 1 || !value.covered || !scope.gameId ||
+          !scope.seasonId || !scope.teamId || !scope.playerId || !scope.category) return;
+      out[taReviewKey_(scope)] = value.covered;
+    } catch (ignored) {}
+  });
+  return out;
+}
+function taReviewRemaining_(row, covered) {
+  const out = {};
+  teamAdminStatFields_(s_(row.category)).forEach(function (f) {
+    if (row[f] === '' || row[f] === null || row[f] === undefined) return;
+    if (!Object.prototype.hasOwnProperty.call(covered || {}, f) ||
+        !teamAdminSame_(row[f], covered[f])) out[f] = row[f];
+  });
+  return out;
+}
+/** Value-matched per-field source ledger. Pre-v1 source records are verified
+ * coach/admin coverage; unknown verified imports remain protected. */
+function taReviewSources_() {
+  const out = {};
+  if (!hasTab_(CONFIG.TABS.AUDIT)) return out;
+  rowsOf_(CONFIG.TABS.AUDIT).forEach(function (r) {
+    if (s_(r.Action) !== 'STATS_RECONCILE') return;
+    try {
+      const scope = JSON.parse(r.Notes), value = JSON.parse(r.NewValue);
+      if (scope.reviewSchema !== 1 || !value.covered) return;
+      const sources = {};
+      Object.keys(value.covered).forEach(function (f) {
+        sources[f] = value.sources && value.sources[f] || 'COACH_ENTRY';
+      });
+      out[taReviewKey_(scope)] = sources;
+    } catch (ignored) {}
+  });
+  return out;
+}
+function taReviewPlan_(me, original, updated, cells, ledger, incomingSource) {
+  incomingSource = incomingSource || 'COACH_ENTRY';
+  const scope = taReviewScope_(updated), key = taReviewKey_(scope);
+  const prior = ledger[key] || {}, covered = Object.assign({},prior);
+  const priorSources = taReviewSources_()[key] || {}, sources = Object.assign({},priorSources);
+  // A pre-existing verified row has no unverified populated fields, even if
+  // it predates the field ledger. Never turn them into player claims.
+  if (s_(original.SourceType) && !provisionalSource_(original.SourceType)) {
+    teamAdminStatFields_(scope.category).forEach(function (f) {
+      if (original[f] !== '' && original[f] !== null && original[f] !== undefined &&
+          !Object.prototype.hasOwnProperty.call(covered,f)) {
+        covered[f] = original[f]; sources[f] = 'VERIFIED_UCBAC';
+      }
+    });
+  }
+  Object.keys(cells).forEach(function (f) {
+    const preserveHigher = incomingSource === 'MAXPREPS' &&
+      Object.prototype.hasOwnProperty.call(covered,f) && sources[f] !== 'MAXPREPS' &&
+      teamAdminSame_(covered[f],cells[f]);
+    covered[f] = cells[f];
+    if (!preserveHigher) sources[f] = incomingSource;
+  });
+  const remaining = taReviewRemaining_(updated,covered);
+  const changed = JSON.stringify(covered) !== JSON.stringify(prior) ||
+    JSON.stringify(sources) !== JSON.stringify(priorSources);
+  ledger[key] = covered;
+  scope.reviewSchema = 1;
+  return {sourceType:Object.keys(remaining).length ? 'PLAYER_ENTRY' :
+      (incomingSource === 'MAXPREPS' ? 'IMPORT' : 'COACH_ENTRY'),
+    remaining:remaining,covered:covered,sources:sources,
+    audit:changed ? auditRow_(me,'STATS_RECONCILE','PlayerGameStat',
+      scope.gameId + ':' + scope.playerId,scope.category,JSON.stringify(original),
+      JSON.stringify({covered:covered,remaining:remaining,sources:sources}),JSON.stringify(scope)) : null};
+}
+function taReviewCorrectionPlan_(me, seasonId, teamId, gameId, accepted) {
+  if (!hasTab_(CONFIG.TABS.CORRECTIONS)) return {updates:[],audit:[]};
+  delete __tableCache[CONFIG.TABS.CORRECTIONS];
+  const updates = [], audit = [];
+  rowsOf_(CONFIG.TABS.CORRECTIONS).forEach(function (r) {
+    if (profileCorrectionStatus_(r) !== 'PENDING' || s_(r.SeasonID) !== seasonId ||
+        s_(r.TeamID) !== teamId || s_(r.GameID) !== gameId) return;
+    const pid = taReviewCanonical_(r.PlayerID), field = s_(r.Field);
+    const match = accepted[pid + '|' + teamAdminCategoryOf_(field)];
+    if (!match || !Object.prototype.hasOwnProperty.call(match,field)) return;
+    const status = teamAdminSame_(r.NewValue,match[field]) ? 'APPROVED' : 'SUPERSEDED';
+    updates.push({row:r.__row,field:'Status',value:status},
+      {row:r.__row,field:'ReviewedBy',value:me.email},
+      {row:r.__row,field:'ReviewedAt',value:new Date()});
+    audit.push(auditRow_(me,'CORRECTION_' + (status === 'APPROVED' ? 'RECONCILED' : 'SUPERSEDED'),
+      'StatCorrection',s_(r.CorrectionID),field,r.NewValue,match[field],
+      seasonId + ' ' + teamId + ' ' + gameId + ' — verified official save; original request preserved'));
+  });
+  return {updates:updates,audit:audit};
+}
+function taReviewCorrections_(me, seasonId, teamId, gameId, accepted) {
+  const plan = taReviewCorrectionPlan_(me,seasonId,teamId,gameId,accepted);
+  const updates = plan.updates, audit = plan.audit;
+  // Audit first: a failed subsequent status write is safely retryable and
+  // cannot manufacture a new stat or lose the request's original proposal.
+  if (audit.length) appendRows_(CONFIG.TABS.AUDIT,audit);
+  if (updates.length) updateCells_(CONFIG.TABS.CORRECTIONS,updates);
+  return audit.length;
+}
+
+
+===== TeamAdmin.js =====
 /**
  * UCBAC Stats — TeamAdmin.gs
  *
@@ -35434,7 +36580,7 @@ const TEAMADMIN = {
        lines up, so it is entered here rather than under Defense, which is
        where a box score usually prints it. */
     SpecTeams: ['FGM', 'FGA', 'XPM', 'XPA', 'Punts', 'PuntYds', 'KR', 'KRYds',
-                'PR', 'PRYds', 'Blocks']
+                'PR', 'PRYds', 'Blocks', 'BlockedPunts', 'TwoPointConversions']
   },
 
   CATEGORY_ORDER: ['Passing', 'Rushing', 'Receiving', 'Blocking', 'Defense', 'SpecTeams'],
@@ -36083,6 +37229,8 @@ function apiSaveGameScore_(gameId, homeScore, awayScore, status, forfeitBy) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // another execution may have written to Games since this one read it
     delete __tableCache[CONFIG.TABS.GAMES];
 
@@ -36281,8 +37429,8 @@ function apiSavePlayerStats_(gameId, teamId, rows, self) {
  *   opts.sourceType  COACH_ENTRY  official - typed by a coach, overwrites anything
  *                    FILE_IMPORT  official - read out of a coach's upload; a later
  *                                 upload overwrites it, and so does the coach
- *                    PLAYER_ENTRY provisional - a player's own line, grey until a
- *                                 coach or an administrator approves it
+ *                    PLAYER_ENTRY player-reported - immediately visible grey;
+ *                                 verified imports replace covered fields
  *   opts.self        the player entering his own line: every row is his
  *
  * A provisional line never overwrites an official one; an official line
@@ -36304,10 +37452,15 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
                     TEAMADMIN.MAX_STAT_ROWS + '. Send them in two batches.');
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS))
+  const queued = !!(opts.queueContext && typeof __statQueueContext !== 'undefined' &&
+    opts.queueContext === __statQueueContext && lock.hasLock());
+  if (opts.queueContext && !queued) throw new Error('Invalid queue execution context.');
+  if (!queued && !lock.tryLock(CONFIG.LOCK_TIMEOUT_MS))
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // another execution may have written to either tab since this one read it
     delete __tableCache[CONFIG.TABS.PLAYER_STATS];
     delete __tableCache[CONFIG.TABS.GAMES];
@@ -36324,6 +37477,7 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
 
     const seasonId = s_(g.SeasonID) || CONFIG.CURRENT_SEASON;
     const week = num_(g.Week);
+    if (self) profileAssertSelfStats_(self, g, teamId);
 
     // Read the sheet directly rather than through readTable(): readTable drops
     // any column whose header cell is blank, and this function rewrites whole
@@ -36356,16 +37510,28 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
     const players = indexBy_(rowsOf_(CONFIG.TABS.PLAYERS), function (p) { return s_(p.PlayerID); });
 
     // Existing GAME-grain lines for this game, keyed the way the upsert is.
-    const existing = {};
+    const existing = {}, officialKeys = {}, duplicateKeys = {};
+    const reviewLedger = taReviewLedger_(), accepted = {};
     for (var r = 1; r < values.length; r++) {
       if (String(values[r][col.GameID] || '').trim() !== gameId) continue;
+      if (s_(values[r][col.TeamID]) !== teamId || s_(values[r][col.SeasonID]) !== seasonId) continue;
       if (String(values[r][col[cGrain]] || '').trim() !== CONFIG.GRAIN.GAME) continue;
-      const pid = String(values[r][col.PlayerID] || '').trim();
+      const pid = taReviewCanonical_(values[r][col.PlayerID]);
       if (!pid) continue;
       const key = pid + '|' + String(values[r][col[cCat]] || '').trim();
-      if (existing[key] === undefined) existing[key] = r;      // first row wins
+      if (existing[key] === undefined) existing[key] = r;
+      else duplicateKeys[key] = true;
+      // Protect every official line, including one after an older duplicate.
+      if (!provisionalSource_(col.SourceType === undefined ? '' : values[r][col.SourceType]))
+        officialKeys[key] = true;
     }
 
+    // Fail the whole save before any write if a target has duplicate canonical
+    // keys. Choosing a duplicate silently would make totals unpredictable.
+    rows.forEach(function (row) {
+      const key = taReviewCanonical_(self ? self.playerId : row.playerId) + '|' + s_(row.category);
+      if (duplicateKeys[key]) throw new Error('Duplicate canonical stat lines for ' + key + ' in this exact game/team/season; review before saving.');
+    });
     const refused = [], audit = [], appends = [];
     const touched = {}, seen = {};
     // what was saved, in words, for the note to the owner when it needs approving
@@ -36375,7 +37541,7 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
 
     rows.forEach(function (row, i) {
       const label = 'row ' + (i + 1);
-      const pid = self ? s_(self.playerId) : s_(row.playerId);
+      const pid = taReviewCanonical_(self ? self.playerId : row.playerId);
       const category = s_(row.category);
 
       if (!pid) { refused.push(label + ': no playerId.'); return; }
@@ -36390,6 +37556,11 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       catch (err) { refused.push(label + ': ' + err.message); return; }
 
       const key = pid + '|' + category;
+      if (self && officialKeys[key]) {
+        refused.push(label + ' (' + roster[pid] + ', ' + category + '): this line is ' +
+                     'already officially recorded. If a number is wrong, request a correction instead.');
+        return;
+      }
       if (seen[key]) {
         refused.push(label + ' (' + roster[pid] + ', ' + category + '): the same player ' +
                      'and category appears twice in this batch. Combine them.');
@@ -36434,6 +37605,16 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       const at = existing[key];
 
       if (at !== undefined) {
+        const original = {};
+        head.forEach(function (h,j) { if (h) original[h] = values[at][j]; });
+        const scope = {seasonId:seasonId,teamId:teamId,gameId:gameId,playerId:pid,category:category};
+        const priorCovered = reviewLedger[taReviewKey_(scope)] || {};
+        if (self && Object.keys(cells).some(function (f) {
+          return Object.prototype.hasOwnProperty.call(priorCovered,f);
+        })) {
+          refused.push(label + ': an official has already verified one of these fields; request a correction.');
+          return;
+        }
         const was = col.SourceType !== undefined ? String(values[at][col.SourceType] || '').trim() : '';
         const wasProvisional = provisionalSource_(was);
         if (!official && !wasProvisional) {
@@ -36446,10 +37627,20 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
         // an official write over a provisional line IS the review - the line
         // leaves the approval queue; over another official source, the line
         // says which one wrote it last (the coach's hand, or his newest file)
-        if (official && col.SourceType !== undefined && was !== sourceType) {
-          values[at][col.SourceType] = sourceType;
+        var review = null;
+        if (official) {
+          const updated = Object.assign({},original,cells,{PlayerID:pid});
+          review = taReviewPlan_(me,original,updated,cells,reviewLedger,
+            queued && opts.queueContext.env.payload.SourceKind === 'MAXPREPS' ? 'MAXPREPS' : 'COACH_ENTRY');
+          if (review.audit) audit.push(review.audit);
+        }
+        const desiredSource = review && Object.keys(review.remaining).length ? 'PLAYER_ENTRY' : sourceType;
+        var reviewed = !!(review && review.audit);
+        if (official && col.SourceType !== undefined && was !== desiredSource) {
+          values[at][col.SourceType] = desiredSource;
           if (col.EnteredBy !== undefined) values[at][col.EnteredBy] = me.email;
           touched[at] = true;
+          reviewed = true;
         } else if (!official && col.SourceType !== undefined && was !== sourceType) {
           // one provisional source replacing another: say which it is now
           values[at][col.SourceType] = sourceType;
@@ -36464,7 +37655,11 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
           values[at][col[f]] = cells[f];
           touched[at] = true;
         });
-        if (!before.length) return;                        // identical resubmission
+        if (official) accepted[key] = cells;
+        if (!before.length) {
+          if (reviewed) saved++;
+          return;                        // identical resubmission is still a review
+        }
         // One audit row per stat line rather than one per cell: a full week is
         // forty lines, and forty audit rows are readable where four hundred are
         // a wall. The before/after strings carry every field that moved.
@@ -36500,7 +37695,13 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       if (col.SourceType !== undefined) obj.SourceType = sourceType;
       Object.keys(cells).forEach(function (f) { obj[f] = cells[f]; });
 
+      if (official) {
+        const review = taReviewPlan_(me,{},obj,cells,reviewLedger,
+          queued && opts.queueContext.env.payload.SourceKind === 'MAXPREPS' ? 'MAXPREPS' : 'COACH_ENTRY');
+        if (review.audit) audit.push(review.audit);
+      }
       appends.push(obj);
+      if (official) accepted[key] = cells;
       const said = Object.keys(cells).map(function (f) {
         return f + '=' + (cells[f] === '' ? '—' : cells[f]);
       }).join(' ');
@@ -36511,6 +37712,12 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       saved++;
     });
 
+    if (queued) return sqCommitWriter_(me,{values:values,head:head,col:col,touched:touched,
+      appends:appends,audit:audit,accepted:accepted,refused:refused,saved:saved,
+      seasonId:seasonId,teamId:teamId,gameId:gameId});
+    // Preserve original claims before any stat mutation. Coverage is only
+    // considered settled when its recorded value matches the live stat cell.
+    if (audit.length) { ensureOpsTabs_(); appendRows_(CONFIG.TABS.AUDIT, audit); }
     // One setValues per changed row rather than one setValue per changed cell.
     // A full week is forty rows against several hundred cells, and the script
     // lock is held for the whole batch.
@@ -36521,9 +37728,9 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
     if (Object.keys(touched).length) delete __tableCache[CONFIG.TABS.PLAYER_STATS];
 
     if (appends.length) appendRows_(CONFIG.TABS.PLAYER_STATS, appends);
-    if (audit.length) { ensureOpsTabs_(); appendRows_(CONFIG.TABS.AUDIT, audit); }
+    const reconciled = official ? taReviewCorrections_(me,seasonId,teamId,gameId,accepted) : 0;
 
-    if (saved) {
+    if (saved || reconciled) {
       teamAdminBustCache_(seasonId);
       // a rebuild is not run inline — a box score arrives category by category
       // over several saves, and the sweep collapses them into one recompute
@@ -36535,9 +37742,9 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
        day's hundred messages ran out, and a coach's own upload is announced
        by the mail that carries the file itself. */
 
-    return { ok: refused.length === 0, saved: saved, refused: refused };
+    return { ok: refused.length === 0, saved: saved, refused: refused, reconciledCorrections:reconciled };
   } finally {
-    lock.releaseLock();
+    if (!queued) lock.releaseLock();
   }
 }
 
@@ -36557,63 +37764,12 @@ function apiPendingPlayerStats_() {
   const me = accountsWhoami_();
   if (me.role !== 'ADMIN' && !(me.role === 'COACH' && me.teamId))
     throw new Error('Administrators and team coaches only.');
-
-  const games = indexBy_(rowsOf_(CONFIG.TABS.GAMES), function (g) { return s_(g.GameID); });
-  const players = indexBy_(rowsOf_(CONFIG.TABS.PLAYERS), function (p) { return s_(p.PlayerID); });
-  const teams = indexBy_(rowsOf_(CONFIG.TABS.TEAMS), function (t) { return s_(t.TeamID); });
-
-  const groups = {};
-  rowsOf_(CONFIG.TABS.PLAYER_STATS).forEach(function (r) {
-    if (!provisionalSource_(r.SourceType)) return;
-    const teamId = s_(r.TeamID);
-    if (me.role !== 'ADMIN' && teamId !== me.teamId) return;
-
-    const key = s_(r.GameID) + '|' + s_(r.PlayerID);
-    var grp = groups[key];
-    if (!grp) {
-      const g = games[s_(r.GameID)] || {};
-      const p = players[s_(r.PlayerID)] || {};
-      const t = teams[teamId] || {};
-      grp = groups[key] = {
-        gameId: s_(r.GameID), playerId: s_(r.PlayerID),
-        player: s_(p.DisplayName) || s_(r.PlayerID),
-        // only PLAYER_ENTRY waits here: a coach's upload is official on landing
-        source: String(r.SourceType || '').trim(),
-        teamId: teamId, teamName: s_(t.DisplayName) || teamId,
-        seasonId: s_(r.SeasonID), week: num_(g.Week),
-        opponent: s_(r.opponent_raw) ||
-                  (s_(g.HomeTeamID) === teamId ? s_(g.AwayTeamName) : s_(g.HomeTeamName)),
-        enteredBy: s_(r.EnteredBy),
-        enteredAt: (r.EnteredAt instanceof Date) ? r.EnteredAt.toISOString() : s_(r.EnteredAt),
-        lines: []
-      };
-    }
-    const line = { category: s_(r.category) };
-    SUM_FIELDS.forEach(function (f) {
-      const v = num_(r[f]);
-      if (v !== null) line[f] = v;
-    });
-    grp.lines.push(line);
-  });
-
-  return Object.keys(groups).map(function (k) { return groups[k]; })
-    .sort(function (a, b) { return a.enteredAt < b.enteredAt ? -1 : 1; });
+  // Compatibility for older pages: initial entries never require approval.
+  return [];
 }
 
 /** How many game+player groups are waiting, for the badge. Never throws. */
-function taPendingStatCount_(me) {
-  try {
-    if (me.role !== 'ADMIN' && !(me.role === 'COACH' && me.teamId)) return 0;
-    if (!hasTab_(CONFIG.TABS.PLAYER_STATS)) return 0;
-    const seen = {};
-    rowsOf_(CONFIG.TABS.PLAYER_STATS).forEach(function (r) {
-      if (!provisionalSource_(r.SourceType)) return;
-      if (me.role !== 'ADMIN' && s_(r.TeamID) !== me.teamId) return;
-      seen[s_(r.GameID) + '|' + s_(r.PlayerID)] = true;
-    });
-    return Object.keys(seen).length;
-  } catch (e) { return 0; }
-}
+function taPendingStatCount_(me) { return 0; }
 
 /**
  * Approve or reject one game+player group. Approving flips SourceType to
@@ -36622,79 +37778,7 @@ function taPendingStatCount_(me) {
  * The player is told which, either way.
  */
 function apiReviewPlayerStats_(gameId, playerId, decision) {
-  const me = accountsWhoami_();
-  gameId = s_(gameId); playerId = s_(playerId);
-  decision = String(decision || '').toUpperCase();
-  if (decision !== 'APPROVE' && decision !== 'REJECT')
-    throw new Error('Approve or reject.');
-
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
-  try {
-    delete __tableCache[CONFIG.TABS.PLAYER_STATS];
-    const sh = getTab_(CONFIG.TABS.PLAYER_STATS);
-    const values = sh.getDataRange().getValues();
-    const head = values[0].map(String);
-    const col = {};
-    head.forEach(function (h, i) { if (h && col[h] === undefined) col[h] = i; });
-    if (col.SourceType === undefined)
-      throw new Error(CONFIG.TABS.PLAYER_STATS + ' has no SourceType column. ' +
-                      'Run ensureSchema_().');
-
-    var teamId = '', seasonId = '', was = '';
-    const hits = [];
-    for (var r = 1; r < values.length; r++) {
-      if (String(values[r][col.GameID] || '').trim() !== gameId) continue;
-      if (String(values[r][col.PlayerID] || '').trim() !== playerId) continue;
-      if (!provisionalSource_(values[r][col.SourceType])) continue;
-      teamId = String(values[r][col.TeamID] || '').trim();
-      seasonId = String(values[r][col.SeasonID] || '').trim();
-      was = String(values[r][col.SourceType] || '').trim();
-      hits.push(r);
-    }
-    if (!hits.length)
-      return { ok: false, message: 'Nothing is waiting for ' + playerId + ' in that game — ' +
-               'it may already be decided or superseded.' };
-
-    if (me.role !== 'ADMIN' && !(me.role === 'COACH' && me.teamId === teamId))
-      throw new Error('Not authorized to review stats for ' + teamId + '.');
-
-    const playerRow = rowsOf_(CONFIG.TABS.PLAYERS).filter(function (p) {
-      return s_(p.PlayerID) === playerId;
-    })[0] || {};
-    const playerName = s_(playerRow.DisplayName) || playerId;
-    const playerEmail = s_(playerRow.Email);
-
-    if (decision === 'APPROVE') {
-      hits.forEach(function (r) {
-        sh.getRange(r + 1, col.SourceType + 1).setValue('COACH_ENTRY');
-        if (col.EnteredBy !== undefined)
-          sh.getRange(r + 1, col.EnteredBy + 1).setValue(
-            String(values[r][col.EnteredBy] || '') + ' / approved by ' + me.email);
-      });
-    } else {
-      // bottom-up — deleting a row renumbers everything beneath it
-      hits.sort(function (a, b) { return b - a; })
-          .forEach(function (r) { sh.deleteRow(r + 1); });
-    }
-
-    delete __tableCache[CONFIG.TABS.PLAYER_STATS];
-    ensureOpsTabs_();
-    appendRows_(CONFIG.TABS.AUDIT, [auditRow_(me,
-      decision === 'APPROVE' ? 'STATS_APPROVE' : 'STATS_REJECT',
-      'PlayerGameStat', gameId + ':' + playerId, 'SourceType', was,
-      decision === 'APPROVE' ? 'COACH_ENTRY' : '(deleted)', teamId + ' ' + seasonId)]);
-
-    // the player is not written to about its fate: the line turns black or
-    // goes, and his dashboard says which
-
-    teamAdminBustCache_(seasonId);
-    markDirty_('stats');
-    return { ok: true, message: (decision === 'APPROVE' ? 'Approved ' : 'Removed ') +
-             playerName + "'s line" + (hits.length > 1 ? 's' : '') + ' for ' + gameId + '.' };
-  } finally {
-    lock.releaseLock();
-  }
+  throw new Error('Player-entered stats publish immediately and do not require approval. Use Stat Entry to record verified values; Stat Corrections remain subject to review.');
 }
 
 // ── captains ───────────────────────────────────────────────────────────────
@@ -36732,6 +37816,8 @@ function apiSetCaptains_(teamId, seasonId, playerIds) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     delete __tableCache[CONFIG.TABS.PLAYER_SEASONS];
 
     const head = tabHeader_(CONFIG.TABS.PLAYER_SEASONS);
@@ -36812,6 +37898,8 @@ function apiSaveTeamLinks_(teamId, links) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     delete __tableCache[CONFIG.TABS.TEAMS];
 
     const row = rowsOf_(CONFIG.TABS.TEAMS).filter(function (t) {
@@ -37006,6 +38094,10 @@ function teamAdminDecideCorrection_(me, correctionId, decision, note) {
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
+    if(me.email==='coach-email-link' && s_(me.decisionSig)!==corrLinkSig_(correctionId,me.decision))
+      throw new Error('This review link expired after an account closure. Use Approvals in the portal.');
     if (!hasTab_(CONFIG.TABS.CORRECTIONS))
       throw new Error('There is no ' + CONFIG.TABS.CORRECTIONS + ' tab. Run ensureSchema_().');
     delete __tableCache[CONFIG.TABS.CORRECTIONS];
@@ -37031,7 +38123,8 @@ function teamAdminDecideCorrection_(me, correctionId, decision, note) {
     const field = s_(c.Field);
     const applicant = s_(c.CorrectedBy);
     const proposed = numOrNull_(c.NewValue);
-    const proposedCell = proposed === null ? '' : proposed;
+    const proposedCell = (field === 'BlockedPunts' || field === 'TwoPointConversions') && act === 'APPROVE'
+      ? teamAdminStat_(field, c.NewValue) : (proposed === null ? '' : proposed);
 
     const player = rowsOf_(CONFIG.TABS.PLAYERS).filter(function (p) {
       return s_(p.PlayerID) === playerId;
@@ -37422,7 +38515,7 @@ function apiStatsTracker_(seasonId, teamId) {
 }
 
 
-===== src/TeamHistory.js =====
+===== TeamHistory.js =====
 /**
  * UCBAC Stats — TeamHistory.gs
  *
@@ -37561,7 +38654,7 @@ function teamAllTime_(teamId, rows) {
 }
 
 
-===== src/TeamPostseason.js =====
+===== TeamPostseason.js =====
 /**
  * UCBAC Stats — TeamPostseason.gs
  *
@@ -37740,7 +38833,7 @@ function menuSeedPostseasonDry()   { return tpSeed_(false); }
 function menuSeedPostseasonApply() { return tpSeed_(true); }
 
 
-===== src/Traffic.js =====
+===== Traffic.js =====
 /**
  * UCBAC Stats - Traffic.gs
  *
@@ -38143,13 +39236,7 @@ function trCorrections_(day) {
 }
 
 /** Stat lines a player entered himself that nobody has approved or removed. */
-function trPendingLines_() {
-  const tab = CONFIG.TABS.PLAYER_STATS;
-  if (!tab || !hasTab_(tab)) return 0;
-  var n = 0;
-  rowsOf_(tab).forEach(function (r) { if (s_(r.SourceType) === 'PLAYER_ENTRY') n++; });
-  return n;
-}
+function trPendingLines_() { return 0; }
 
 /** The links that settle an account request from the inbox, or nothing without an address. */
 function trAccountLinks_(base, id) {
@@ -38752,7 +39839,7 @@ function menuTrafficOnOff() {
 }
 
 
-===== src/Triggers.js =====
+===== Triggers.js =====
 /**
  * UCBAC Stats — Triggers.gs
  *
@@ -38801,6 +39888,10 @@ function clearDirty_() { props_().deleteProperty(TRG.DIRTY_KEY); }
 
 /** Runs every SWEEP_MINUTES. Cheap when nothing changed. */
 function sweepRebuild() {
+  // Explicit READY batches only; the legacy StatsImport tab is never scanned.
+  // Queue failures do not suppress the existing derived-layer rebuild.
+  try { if (typeof sqWorker_ === 'function') sqWorker_(); }
+  catch (e) { Logger.log('Bounded stats queue paused this sweep: ' + String(e.message || '').replace(/[^A-Z_]/g,'').slice(0,80)); }
   if (!isDirty_()) return 'clean — nothing to do';
   return runRebuild_('sweep');
 }
@@ -38930,7 +40021,8 @@ function buildStatus_() {
   };
 }
 
-===== src/WebApps.js =====
+
+===== WebApps.js =====
 /**
  * UCBAC Stats - WebApp.gs
  *
@@ -39162,6 +40254,8 @@ function svcRegisterFinalize(t, p)      { return withSession_(t, function () { r
 function svcClaimCandidates(t, teamId, name)  { return withSession_(t, function () { return apiClaimCandidates_(teamId, name); }); }
 function svcPendingAccounts(t)                { return withSession_(t, function () { return apiPendingAccounts_(); }); }
 function svcApproveAccount(t, id, ap, note)   { return withSession_(t, function () { return apiApproveAccount_(id, ap, note); }); }
+function svcPrepareAccountClosure(t, target) { return withSession_(t, function () { return apiPrepareAccountClosure_(target); }, {fresh:true}); }
+function svcCloseAccount(t, p) { return withSession_(t, function () { return apiCloseAccount_(p); }, {fresh:true}); }
 
 /* ---- portal: player ---- */
 function svcMyCoachProfile(t)           { return withSession_(t, function () { return apiMyCoachProfile_(); }); }
@@ -39199,7 +40293,7 @@ function svcReviewPlayerStats(t, gid, pid, dec)   { return withSession_(t, funct
 function svcStatsTracker(t, season, teamId)       { return withSession_(t, function () { return apiStatsTracker_(season, teamId); }); }
 
 
-===== src/appsscript.json =====
+===== appsscript.json =====
 {
   "timeZone": "America/New_York",
   "exceptionLogging": "STACKDRIVER",
@@ -39228,24 +40322,30 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   }
 }
 
-===== src/manifest.json =====
+===== manifest.json =====
 [
   {
     "file": "API.js",
-    "bytes": 74979,
-    "sha256": "5ea0f38ef566ecc786eb7072b41802e5b139ebcd9314580367253582728ed84c",
+    "bytes": 75109,
+    "sha256": "f341f75f8f9cd0324c30ab4d21e18825524327a9596913124f1394d35f9339a0",
+    "sanitized": false
+  },
+  {
+    "file": "AccountClosure.js",
+    "bytes": 15106,
+    "sha256": "cedceb4848a8804029967997dc169ef86004c026cfad4d1a89c7d3c9cb77bd4a",
     "sanitized": false
   },
   {
     "file": "Accounts.js",
-    "bytes": 46748,
-    "sha256": "8606849ebf645958fab862ca1259122a6ac86aac7fadf657cd5f3cba0d968fc0",
+    "bytes": 47559,
+    "sha256": "c91ab741f006a651ecedb0fd132cc0afd3cac9bc00f4984957e1730d4b7829f8",
     "sanitized": true
   },
   {
     "file": "Admin.js",
-    "bytes": 18828,
-    "sha256": "a630e03532455781ac90943a6cdf5a145ab62218bf2087bbf7701167920b6d01",
+    "bytes": 19498,
+    "sha256": "84b1f94dc39be0a469e85bce4a8ef8755257657eb51e8c6f3f1ff9e4cdb4b62a",
     "sanitized": true
   },
   {
@@ -39256,8 +40356,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Aggregation.js",
-    "bytes": 21944,
-    "sha256": "58772b7054e8ac4624786f43aa0ad6bf9eb9b9f428246be410e3fb4cf34ea565",
+    "bytes": 22070,
+    "sha256": "f80736c058dbb606c6edb3310f3e6dcf6b24613d53e29114a19ce26b4aad2b98",
     "sanitized": false
   },
   {
@@ -39268,8 +40368,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "AppPublicRefreshAdapter.js",
-    "bytes": 13149,
-    "sha256": "a414d04c52eb00710e3ae7979e7e490e8ca8581b09d92d4d4a1cea1bcf7c53e1",
+    "bytes": 13439,
+    "sha256": "f81036c362d9c395dd2aa2eb44ee3ed3ff171bc3a9a1b64c1f6a89e3a260cd4a",
     "sanitized": false
   },
   {
@@ -39280,8 +40380,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Auth.js",
-    "bytes": 27443,
-    "sha256": "de29c07781d7dea5ed528eb580b898e8a1efe5890d94eaa917a6b45cfae33ddf",
+    "bytes": 29423,
+    "sha256": "9194c39ba7245ec3c3970aa4ffa11b78ec6d1214efe6c00a3a482dc2016e9d17",
     "sanitized": true
   },
   {
@@ -39292,8 +40392,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Chat.js",
-    "bytes": 96100,
-    "sha256": "b0300d6f351cf6a8857fd8f1f0f460a39ae030b8f7cb7f7a0c69b600c77f8330",
+    "bytes": 95800,
+    "sha256": "8ec12b09ad13a5435f7b813acbdf9d5fea451b0ea5172a78dc91398b0b5074bf",
     "sanitized": true
   },
   {
@@ -39310,14 +40410,14 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "CoachInvites.js",
-    "bytes": 13506,
-    "sha256": "1020f197eaca20414861584e8363a492f6da40114b2ac983dd9f950f696eb781",
+    "bytes": 13498,
+    "sha256": "14469a766cc134b9f7d04f70fd99d794d8feebedd36daa403d205ec6e646f550",
     "sanitized": true
   },
   {
     "file": "CoachProfile.js",
-    "bytes": 18013,
-    "sha256": "1f839da7cc41b13e1c7504e634bc4dad617d7eb134f98db2c485d65e4667c177",
+    "bytes": 18347,
+    "sha256": "43098cf0f48a1423e88703e891199c1e9aeda7eab56bc471d9c6d803b3200e04",
     "sanitized": false
   },
   {
@@ -39334,8 +40434,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "CorrectionMail.js",
-    "bytes": 21391,
-    "sha256": "f1fae061b2d544216b337c361db075a5b30d08881f2c35fc3d67031f42969f7a",
+    "bytes": 21687,
+    "sha256": "7623c008f8429ea4d10d64f462854ee9bff0ed75d9777d09308ab04a33aad5c6",
     "sanitized": true
   },
   {
@@ -39370,8 +40470,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Fantasy.js",
-    "bytes": 40834,
-    "sha256": "603b1852a343eabdfdb478b203c2d12c1966e93dc4cebaaab6c41663f58bb632",
+    "bytes": 41067,
+    "sha256": "29d21ca0e1bc82bf063f698e2087736095ca76c574b9859d18f040939ae83402",
     "sanitized": false
   },
   {
@@ -39388,20 +40488,20 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "ImportPages.js",
-    "bytes": 13637,
-    "sha256": "d1905f37cc8bc5e737ff9f0ec56407dedb5ae42012716f2f4e24d32aa9c47569",
+    "bytes": 13675,
+    "sha256": "0c8317444f17c7db1d72bca44b11a8faf150c43e078dda677a66353e7e93527c",
     "sanitized": false
   },
   {
     "file": "ImportRoster.js",
-    "bytes": 39515,
-    "sha256": "25bad6e7de2ba27ab20d7b43e16e28b4381f6b5a6164d52f5f543dfa3d6f477d",
+    "bytes": 40085,
+    "sha256": "4137acc9e74bd78a0cafb1ca6936a9166d2da29ea000327c860592ea99c23184",
     "sanitized": false
   },
   {
     "file": "Index.html",
-    "bytes": 487081,
-    "sha256": "5ad9fc21f90051ba9ccf541f31811a04f443833d58c70e2d045698f83d302c06",
+    "bytes": 487414,
+    "sha256": "6c96ec4fcc9bc0b6dacc2c914e129c82223c3dab888c9bf38d7c72a183cf45c1",
     "sanitized": true
   },
   {
@@ -39424,14 +40524,14 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Plays.js",
-    "bytes": 40175,
-    "sha256": "cb1af8384edd7554bdd4e16e84b77c3e38eba8831dab327182dfe4be0799bf5e",
+    "bytes": 40242,
+    "sha256": "818623583674faca917b8e9e7b1b84dec457923bd7c7f822a380b0337629fc47",
     "sanitized": true
   },
   {
     "file": "Policies.js",
-    "bytes": 28551,
-    "sha256": "4839598ce58dfba0c640230655ef0d38cb618529a473f0c8a37c8236418fa6f2",
+    "bytes": 32799,
+    "sha256": "ff1ed08d52abcaf36f29cffc69153095d18add1776483c7e7c487084f0683776",
     "sanitized": true
   },
   {
@@ -39442,8 +40542,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Portal.html",
-    "bytes": 301319,
-    "sha256": "fef62a0ebd201c98d14da89e0f7da18829c5011eda202cf5eb4af90de8a22a75",
+    "bytes": 306120,
+    "sha256": "32424d10afc04e5c8f0b5cc27743f758acf5109d69d6c7b766d5cc5360b06e09",
     "sanitized": true
   },
   {
@@ -39454,8 +40554,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Profile.js",
-    "bytes": 54030,
-    "sha256": "ed94ad2b82676afa715153cdc4f9cbea62912b17bb70b664e7f465382f40dc41",
+    "bytes": 54781,
+    "sha256": "a97089e381cb536d22c40d30a2808be944297623ad34d31a61cdf5dc1d7427c6",
     "sanitized": true
   },
   {
@@ -39466,20 +40566,20 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "ResolveStats.js",
-    "bytes": 15565,
-    "sha256": "673f95593d664eca7f41c1554e19ed330b9eeed10760b8cc95cb2a7752e6ef3e",
+    "bytes": 15579,
+    "sha256": "181957a9496d5136fa8ab2702f53ad43bf7cad464250499408bf9baed4c564dd",
     "sanitized": false
   },
   {
     "file": "Roster.js",
-    "bytes": 21042,
-    "sha256": "0e846797949275312f77d253f03bc1dad1bc71e2753b98a6bd90cb10ed3043a5",
+    "bytes": 21207,
+    "sha256": "da6b7bb9aae308ee29ea6dbe443cf7e0da9638134291b77c851e4f89b5dfc524",
     "sanitized": false
   },
   {
     "file": "Schema.js",
-    "bytes": 15363,
-    "sha256": "266965f7477549b32b1a2a49d2dbbff605e03db6f4be3efbae29045ae4fffa29",
+    "bytes": 17492,
+    "sha256": "2fccf2cced76cb289f99f347406dd438b1193f46128a5d4b36b218d6399e25d2",
     "sanitized": false
   },
   {
@@ -39496,8 +40596,8 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Stats.js",
-    "bytes": 80007,
-    "sha256": "066c2d1efd1ffb3aa6e624d284d391c06ad68d09d2b2032db4cf1cd6511f95f8",
+    "bytes": 80215,
+    "sha256": "75c7317fc02358b41b4ae965b42e65a42ed77cc8c1eeaa6f13fd7750fc70a27d",
     "sanitized": false
   },
   {
@@ -39508,20 +40608,32 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "StatsExtract.js",
-    "bytes": 20184,
-    "sha256": "ce34c699db905ce312bf3d89fe89c3d44712d1c7d7a64ac02beca60f586354ba",
+    "bytes": 20699,
+    "sha256": "33c1ceb6f910d7c1585822fdc44ab3e92561efa14d9a849a2470fba49409ee41",
     "sanitized": false
   },
   {
     "file": "StatsImport.js",
-    "bytes": 22038,
-    "sha256": "978dc4d228e332accf80cdf3488dd05a26eb19f58fbcf4ddd6a636a8785d5003",
+    "bytes": 22564,
+    "sha256": "3a545259f9f6f6c6d0be2702dfd11dd785a675ccc18118fc1bda3513d64b75b0",
+    "sanitized": false
+  },
+  {
+    "file": "StatsImportQueue.js",
+    "bytes": 32562,
+    "sha256": "00171d4e323598750822e7d7ab41ac8c3600171dd3ee314f069b1533d392cb11",
+    "sanitized": true
+  },
+  {
+    "file": "StatsReconcile.js",
+    "bytes": 6141,
+    "sha256": "2770ba31a3ee8fbeccf2a049812d6b0068cedb278ad90af51b11d8a0bdf5b422",
     "sanitized": false
   },
   {
     "file": "TeamAdmin.js",
-    "bytes": 99265,
-    "sha256": "5cd3b7fef87819552757248cdb3d5cbabadcb7feb34c317bd7630c18355accbd",
+    "bytes": 98266,
+    "sha256": "cf910756f58c62e7512c36c2418a0dce69f5f2855253f374e09b0d677e2c12cc",
     "sanitized": true
   },
   {
@@ -39538,20 +40650,20 @@ function svcStatsTracker(t, season, teamId)       { return withSession_(t, funct
   },
   {
     "file": "Traffic.js",
-    "bytes": 46456,
-    "sha256": "c42a7d66961d967515c6ca9712c9deb6de2c5d92929446a7282911490aeccb18",
+    "bytes": 46274,
+    "sha256": "fd8c6384248864c8a21450e7a448112ffbe0dce37e748e9dbb348f7d33b9f857",
     "sanitized": true
   },
   {
     "file": "Triggers.js",
-    "bytes": 7302,
-    "sha256": "37babc6aa66af4a988ae09614e26a18f3ae70e14c9f39c06a135c541b9f458c5",
+    "bytes": 7646,
+    "sha256": "34a390912ca8fb98d39e3ebdc471730c80d329ca0d60ea987b2c597e219aad98",
     "sanitized": false
   },
   {
     "file": "WebApps.js",
-    "bytes": 16964,
-    "sha256": "8d49115f14f6c897f3c98f964a948432b268a874259b4bd5f26b22444c8a2986",
+    "bytes": 17228,
+    "sha256": "afd342657df561fa471178fe1e3e4b4545bf9b57d74e8f4236750c1eeddcc5c4",
     "sanitized": false
   },
   {

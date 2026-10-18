@@ -151,8 +151,10 @@ function corrBaseFromSentMail_() {
  * the account-approval links, which sign the same secret over an account id.
  */
 function corrLinkSig_(correctionId, decision) {
+  const row=hasTab_(CONFIG.TABS.CORRECTIONS) ? rowsOf_(CONFIG.TABS.CORRECTIONS).filter(function(r){return s_(r.CorrectionID)===s_(correctionId);})[0] : null;
+  const epoch=closureReviewEpoch_(row ? s_(row.TeamID) : '');
   return authHash_(acctLinkSecret_() + '|corr|' + s_(correctionId) + '|' +
-                  String(decision).toLowerCase()).slice(0, 32);
+                  String(decision).toLowerCase() + (epoch ? '|closed-grant:'+epoch : '')).slice(0, 32);
 }
 
 function corrLink_(base, correctionId, decision) {
@@ -175,7 +177,7 @@ function apiDecideCorrectionByLink_(correctionId, decision, sig) {
   if (!correctionId || s_(sig) !== corrLinkSig_(correctionId, decision))
     throw new Error('This link is not valid.');
   return teamAdminDecideCorrection_(
-    { email: 'coach-email-link', role: 'ADMIN', teamId: '' },
+    { email: 'coach-email-link', role: 'ADMIN', teamId: '', decisionSig:sig, decision:decision },
     correctionId, decision === 'approve' ? 'APPROVE' : 'REJECT',
     'decided from the correction email');
 }

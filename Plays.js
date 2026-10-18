@@ -84,7 +84,8 @@ const PLAYS = {
   // window drives the public countdown and the upload server's acceptance gate.
   WINDOW_OVERRIDES: {
     'SEA-2026': {
-      W5: { open: '2026-10-01 21:30', close: '2026-10-04 11:59' }
+      W5: { open: '2026-10-01 21:30', close: '2026-10-04 11:59' },
+      W7: { open: '2026-10-15 21:30', close: '2026-10-17 11:59' }
     }
   },
   MAX_BYTES: 2 * 1024 * 1024 * 1024,     // 2 GB - Drive's own comfort zone

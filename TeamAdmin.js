@@ -96,7 +96,7 @@ const TEAMADMIN = {
        lines up, so it is entered here rather than under Defense, which is
        where a box score usually prints it. */
     SpecTeams: ['FGM', 'FGA', 'XPM', 'XPA', 'Punts', 'PuntYds', 'KR', 'KRYds',
-                'PR', 'PRYds', 'Blocks']
+                'PR', 'PRYds', 'Blocks', 'BlockedPunts', 'TwoPointConversions']
   },
 
   CATEGORY_ORDER: ['Passing', 'Rushing', 'Receiving', 'Blocking', 'Defense', 'SpecTeams'],
@@ -745,6 +745,8 @@ function apiSaveGameScore_(gameId, homeScore, awayScore, status, forfeitBy) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // another execution may have written to Games since this one read it
     delete __tableCache[CONFIG.TABS.GAMES];
 
@@ -943,8 +945,8 @@ function apiSavePlayerStats_(gameId, teamId, rows, self) {
  *   opts.sourceType  COACH_ENTRY  official - typed by a coach, overwrites anything
  *                    FILE_IMPORT  official - read out of a coach's upload; a later
  *                                 upload overwrites it, and so does the coach
- *                    PLAYER_ENTRY provisional - a player's own line, grey until a
- *                                 coach or an administrator approves it
+ *                    PLAYER_ENTRY player-reported - immediately visible grey;
+ *                                 verified imports replace covered fields
  *   opts.self        the player entering his own line: every row is his
  *
  * A provisional line never overwrites an official one; an official line
@@ -966,10 +968,15 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
                     TEAMADMIN.MAX_STAT_ROWS + '. Send them in two batches.');
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS))
+  const queued = !!(opts.queueContext && typeof __statQueueContext !== 'undefined' &&
+    opts.queueContext === __statQueueContext && lock.hasLock());
+  if (opts.queueContext && !queued) throw new Error('Invalid queue execution context.');
+  if (!queued && !lock.tryLock(CONFIG.LOCK_TIMEOUT_MS))
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     // another execution may have written to either tab since this one read it
     delete __tableCache[CONFIG.TABS.PLAYER_STATS];
     delete __tableCache[CONFIG.TABS.GAMES];
@@ -986,6 +993,7 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
 
     const seasonId = s_(g.SeasonID) || CONFIG.CURRENT_SEASON;
     const week = num_(g.Week);
+    if (self) profileAssertSelfStats_(self, g, teamId);
 
     // Read the sheet directly rather than through readTable(): readTable drops
     // any column whose header cell is blank, and this function rewrites whole
@@ -1018,16 +1026,28 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
     const players = indexBy_(rowsOf_(CONFIG.TABS.PLAYERS), function (p) { return s_(p.PlayerID); });
 
     // Existing GAME-grain lines for this game, keyed the way the upsert is.
-    const existing = {};
+    const existing = {}, officialKeys = {}, duplicateKeys = {};
+    const reviewLedger = taReviewLedger_(), accepted = {};
     for (var r = 1; r < values.length; r++) {
       if (String(values[r][col.GameID] || '').trim() !== gameId) continue;
+      if (s_(values[r][col.TeamID]) !== teamId || s_(values[r][col.SeasonID]) !== seasonId) continue;
       if (String(values[r][col[cGrain]] || '').trim() !== CONFIG.GRAIN.GAME) continue;
-      const pid = String(values[r][col.PlayerID] || '').trim();
+      const pid = taReviewCanonical_(values[r][col.PlayerID]);
       if (!pid) continue;
       const key = pid + '|' + String(values[r][col[cCat]] || '').trim();
-      if (existing[key] === undefined) existing[key] = r;      // first row wins
+      if (existing[key] === undefined) existing[key] = r;
+      else duplicateKeys[key] = true;
+      // Protect every official line, including one after an older duplicate.
+      if (!provisionalSource_(col.SourceType === undefined ? '' : values[r][col.SourceType]))
+        officialKeys[key] = true;
     }
 
+    // Fail the whole save before any write if a target has duplicate canonical
+    // keys. Choosing a duplicate silently would make totals unpredictable.
+    rows.forEach(function (row) {
+      const key = taReviewCanonical_(self ? self.playerId : row.playerId) + '|' + s_(row.category);
+      if (duplicateKeys[key]) throw new Error('Duplicate canonical stat lines for ' + key + ' in this exact game/team/season; review before saving.');
+    });
     const refused = [], audit = [], appends = [];
     const touched = {}, seen = {};
     // what was saved, in words, for the note to the owner when it needs approving
@@ -1037,7 +1057,7 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
 
     rows.forEach(function (row, i) {
       const label = 'row ' + (i + 1);
-      const pid = self ? s_(self.playerId) : s_(row.playerId);
+      const pid = taReviewCanonical_(self ? self.playerId : row.playerId);
       const category = s_(row.category);
 
       if (!pid) { refused.push(label + ': no playerId.'); return; }
@@ -1052,6 +1072,11 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       catch (err) { refused.push(label + ': ' + err.message); return; }
 
       const key = pid + '|' + category;
+      if (self && officialKeys[key]) {
+        refused.push(label + ' (' + roster[pid] + ', ' + category + '): this line is ' +
+                     'already officially recorded. If a number is wrong, request a correction instead.');
+        return;
+      }
       if (seen[key]) {
         refused.push(label + ' (' + roster[pid] + ', ' + category + '): the same player ' +
                      'and category appears twice in this batch. Combine them.');
@@ -1096,6 +1121,16 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       const at = existing[key];
 
       if (at !== undefined) {
+        const original = {};
+        head.forEach(function (h,j) { if (h) original[h] = values[at][j]; });
+        const scope = {seasonId:seasonId,teamId:teamId,gameId:gameId,playerId:pid,category:category};
+        const priorCovered = reviewLedger[taReviewKey_(scope)] || {};
+        if (self && Object.keys(cells).some(function (f) {
+          return Object.prototype.hasOwnProperty.call(priorCovered,f);
+        })) {
+          refused.push(label + ': an official has already verified one of these fields; request a correction.');
+          return;
+        }
         const was = col.SourceType !== undefined ? String(values[at][col.SourceType] || '').trim() : '';
         const wasProvisional = provisionalSource_(was);
         if (!official && !wasProvisional) {
@@ -1108,10 +1143,20 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
         // an official write over a provisional line IS the review - the line
         // leaves the approval queue; over another official source, the line
         // says which one wrote it last (the coach's hand, or his newest file)
-        if (official && col.SourceType !== undefined && was !== sourceType) {
-          values[at][col.SourceType] = sourceType;
+        var review = null;
+        if (official) {
+          const updated = Object.assign({},original,cells,{PlayerID:pid});
+          review = taReviewPlan_(me,original,updated,cells,reviewLedger,
+            queued && opts.queueContext.env.payload.SourceKind === 'MAXPREPS' ? 'MAXPREPS' : 'COACH_ENTRY');
+          if (review.audit) audit.push(review.audit);
+        }
+        const desiredSource = review && Object.keys(review.remaining).length ? 'PLAYER_ENTRY' : sourceType;
+        var reviewed = !!(review && review.audit);
+        if (official && col.SourceType !== undefined && was !== desiredSource) {
+          values[at][col.SourceType] = desiredSource;
           if (col.EnteredBy !== undefined) values[at][col.EnteredBy] = me.email;
           touched[at] = true;
+          reviewed = true;
         } else if (!official && col.SourceType !== undefined && was !== sourceType) {
           // one provisional source replacing another: say which it is now
           values[at][col.SourceType] = sourceType;
@@ -1126,7 +1171,11 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
           values[at][col[f]] = cells[f];
           touched[at] = true;
         });
-        if (!before.length) return;                        // identical resubmission
+        if (official) accepted[key] = cells;
+        if (!before.length) {
+          if (reviewed) saved++;
+          return;                        // identical resubmission is still a review
+        }
         // One audit row per stat line rather than one per cell: a full week is
         // forty lines, and forty audit rows are readable where four hundred are
         // a wall. The before/after strings carry every field that moved.
@@ -1162,7 +1211,13 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       if (col.SourceType !== undefined) obj.SourceType = sourceType;
       Object.keys(cells).forEach(function (f) { obj[f] = cells[f]; });
 
+      if (official) {
+        const review = taReviewPlan_(me,{},obj,cells,reviewLedger,
+          queued && opts.queueContext.env.payload.SourceKind === 'MAXPREPS' ? 'MAXPREPS' : 'COACH_ENTRY');
+        if (review.audit) audit.push(review.audit);
+      }
       appends.push(obj);
+      if (official) accepted[key] = cells;
       const said = Object.keys(cells).map(function (f) {
         return f + '=' + (cells[f] === '' ? '—' : cells[f]);
       }).join(' ');
@@ -1173,6 +1228,12 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
       saved++;
     });
 
+    if (queued) return sqCommitWriter_(me,{values:values,head:head,col:col,touched:touched,
+      appends:appends,audit:audit,accepted:accepted,refused:refused,saved:saved,
+      seasonId:seasonId,teamId:teamId,gameId:gameId});
+    // Preserve original claims before any stat mutation. Coverage is only
+    // considered settled when its recorded value matches the live stat cell.
+    if (audit.length) { ensureOpsTabs_(); appendRows_(CONFIG.TABS.AUDIT, audit); }
     // One setValues per changed row rather than one setValue per changed cell.
     // A full week is forty rows against several hundred cells, and the script
     // lock is held for the whole batch.
@@ -1183,9 +1244,9 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
     if (Object.keys(touched).length) delete __tableCache[CONFIG.TABS.PLAYER_STATS];
 
     if (appends.length) appendRows_(CONFIG.TABS.PLAYER_STATS, appends);
-    if (audit.length) { ensureOpsTabs_(); appendRows_(CONFIG.TABS.AUDIT, audit); }
+    const reconciled = official ? taReviewCorrections_(me,seasonId,teamId,gameId,accepted) : 0;
 
-    if (saved) {
+    if (saved || reconciled) {
       teamAdminBustCache_(seasonId);
       // a rebuild is not run inline — a box score arrives category by category
       // over several saves, and the sweep collapses them into one recompute
@@ -1197,9 +1258,9 @@ function teamAdminWriteStats_(me, gameId, teamId, rows, opts) {
        day's hundred messages ran out, and a coach's own upload is announced
        by the mail that carries the file itself. */
 
-    return { ok: refused.length === 0, saved: saved, refused: refused };
+    return { ok: refused.length === 0, saved: saved, refused: refused, reconciledCorrections:reconciled };
   } finally {
-    lock.releaseLock();
+    if (!queued) lock.releaseLock();
   }
 }
 
@@ -1219,63 +1280,12 @@ function apiPendingPlayerStats_() {
   const me = accountsWhoami_();
   if (me.role !== 'ADMIN' && !(me.role === 'COACH' && me.teamId))
     throw new Error('Administrators and team coaches only.');
-
-  const games = indexBy_(rowsOf_(CONFIG.TABS.GAMES), function (g) { return s_(g.GameID); });
-  const players = indexBy_(rowsOf_(CONFIG.TABS.PLAYERS), function (p) { return s_(p.PlayerID); });
-  const teams = indexBy_(rowsOf_(CONFIG.TABS.TEAMS), function (t) { return s_(t.TeamID); });
-
-  const groups = {};
-  rowsOf_(CONFIG.TABS.PLAYER_STATS).forEach(function (r) {
-    if (!provisionalSource_(r.SourceType)) return;
-    const teamId = s_(r.TeamID);
-    if (me.role !== 'ADMIN' && teamId !== me.teamId) return;
-
-    const key = s_(r.GameID) + '|' + s_(r.PlayerID);
-    var grp = groups[key];
-    if (!grp) {
-      const g = games[s_(r.GameID)] || {};
-      const p = players[s_(r.PlayerID)] || {};
-      const t = teams[teamId] || {};
-      grp = groups[key] = {
-        gameId: s_(r.GameID), playerId: s_(r.PlayerID),
-        player: s_(p.DisplayName) || s_(r.PlayerID),
-        // only PLAYER_ENTRY waits here: a coach's upload is official on landing
-        source: String(r.SourceType || '').trim(),
-        teamId: teamId, teamName: s_(t.DisplayName) || teamId,
-        seasonId: s_(r.SeasonID), week: num_(g.Week),
-        opponent: s_(r.opponent_raw) ||
-                  (s_(g.HomeTeamID) === teamId ? s_(g.AwayTeamName) : s_(g.HomeTeamName)),
-        enteredBy: s_(r.EnteredBy),
-        enteredAt: (r.EnteredAt instanceof Date) ? r.EnteredAt.toISOString() : s_(r.EnteredAt),
-        lines: []
-      };
-    }
-    const line = { category: s_(r.category) };
-    SUM_FIELDS.forEach(function (f) {
-      const v = num_(r[f]);
-      if (v !== null) line[f] = v;
-    });
-    grp.lines.push(line);
-  });
-
-  return Object.keys(groups).map(function (k) { return groups[k]; })
-    .sort(function (a, b) { return a.enteredAt < b.enteredAt ? -1 : 1; });
+  // Compatibility for older pages: initial entries never require approval.
+  return [];
 }
 
 /** How many game+player groups are waiting, for the badge. Never throws. */
-function taPendingStatCount_(me) {
-  try {
-    if (me.role !== 'ADMIN' && !(me.role === 'COACH' && me.teamId)) return 0;
-    if (!hasTab_(CONFIG.TABS.PLAYER_STATS)) return 0;
-    const seen = {};
-    rowsOf_(CONFIG.TABS.PLAYER_STATS).forEach(function (r) {
-      if (!provisionalSource_(r.SourceType)) return;
-      if (me.role !== 'ADMIN' && s_(r.TeamID) !== me.teamId) return;
-      seen[s_(r.GameID) + '|' + s_(r.PlayerID)] = true;
-    });
-    return Object.keys(seen).length;
-  } catch (e) { return 0; }
-}
+function taPendingStatCount_(me) { return 0; }
 
 /**
  * Approve or reject one game+player group. Approving flips SourceType to
@@ -1284,79 +1294,7 @@ function taPendingStatCount_(me) {
  * The player is told which, either way.
  */
 function apiReviewPlayerStats_(gameId, playerId, decision) {
-  const me = accountsWhoami_();
-  gameId = s_(gameId); playerId = s_(playerId);
-  decision = String(decision || '').toUpperCase();
-  if (decision !== 'APPROVE' && decision !== 'REJECT')
-    throw new Error('Approve or reject.');
-
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
-  try {
-    delete __tableCache[CONFIG.TABS.PLAYER_STATS];
-    const sh = getTab_(CONFIG.TABS.PLAYER_STATS);
-    const values = sh.getDataRange().getValues();
-    const head = values[0].map(String);
-    const col = {};
-    head.forEach(function (h, i) { if (h && col[h] === undefined) col[h] = i; });
-    if (col.SourceType === undefined)
-      throw new Error(CONFIG.TABS.PLAYER_STATS + ' has no SourceType column. ' +
-                      'Run ensureSchema_().');
-
-    var teamId = '', seasonId = '', was = '';
-    const hits = [];
-    for (var r = 1; r < values.length; r++) {
-      if (String(values[r][col.GameID] || '').trim() !== gameId) continue;
-      if (String(values[r][col.PlayerID] || '').trim() !== playerId) continue;
-      if (!provisionalSource_(values[r][col.SourceType])) continue;
-      teamId = String(values[r][col.TeamID] || '').trim();
-      seasonId = String(values[r][col.SeasonID] || '').trim();
-      was = String(values[r][col.SourceType] || '').trim();
-      hits.push(r);
-    }
-    if (!hits.length)
-      return { ok: false, message: 'Nothing is waiting for ' + playerId + ' in that game — ' +
-               'it may already be decided or superseded.' };
-
-    if (me.role !== 'ADMIN' && !(me.role === 'COACH' && me.teamId === teamId))
-      throw new Error('Not authorized to review stats for ' + teamId + '.');
-
-    const playerRow = rowsOf_(CONFIG.TABS.PLAYERS).filter(function (p) {
-      return s_(p.PlayerID) === playerId;
-    })[0] || {};
-    const playerName = s_(playerRow.DisplayName) || playerId;
-    const playerEmail = s_(playerRow.Email);
-
-    if (decision === 'APPROVE') {
-      hits.forEach(function (r) {
-        sh.getRange(r + 1, col.SourceType + 1).setValue('COACH_ENTRY');
-        if (col.EnteredBy !== undefined)
-          sh.getRange(r + 1, col.EnteredBy + 1).setValue(
-            String(values[r][col.EnteredBy] || '') + ' / approved by ' + me.email);
-      });
-    } else {
-      // bottom-up — deleting a row renumbers everything beneath it
-      hits.sort(function (a, b) { return b - a; })
-          .forEach(function (r) { sh.deleteRow(r + 1); });
-    }
-
-    delete __tableCache[CONFIG.TABS.PLAYER_STATS];
-    ensureOpsTabs_();
-    appendRows_(CONFIG.TABS.AUDIT, [auditRow_(me,
-      decision === 'APPROVE' ? 'STATS_APPROVE' : 'STATS_REJECT',
-      'PlayerGameStat', gameId + ':' + playerId, 'SourceType', was,
-      decision === 'APPROVE' ? 'COACH_ENTRY' : '(deleted)', teamId + ' ' + seasonId)]);
-
-    // the player is not written to about its fate: the line turns black or
-    // goes, and his dashboard says which
-
-    teamAdminBustCache_(seasonId);
-    markDirty_('stats');
-    return { ok: true, message: (decision === 'APPROVE' ? 'Approved ' : 'Removed ') +
-             playerName + "'s line" + (hits.length > 1 ? 's' : '') + ' for ' + gameId + '.' };
-  } finally {
-    lock.releaseLock();
-  }
+  throw new Error('Player-entered stats publish immediately and do not require approval. Use Stat Entry to record verified values; Stat Corrections remain subject to review.');
 }
 
 // ── captains ───────────────────────────────────────────────────────────────
@@ -1394,6 +1332,8 @@ function apiSetCaptains_(teamId, seasonId, playerIds) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     delete __tableCache[CONFIG.TABS.PLAYER_SEASONS];
 
     const head = tabHeader_(CONFIG.TABS.PLAYER_SEASONS);
@@ -1474,6 +1414,8 @@ function apiSaveTeamLinks_(teamId, links) {
     throw new Error('Another save is in progress. Try again in a moment.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
     delete __tableCache[CONFIG.TABS.TEAMS];
 
     const row = rowsOf_(CONFIG.TABS.TEAMS).filter(function (t) {
@@ -1668,6 +1610,10 @@ function teamAdminDecideCorrection_(me, correctionId, decision, note) {
   if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) throw new Error('Busy — try again.');
 
   try {
+    __tableCache = {};
+    authRecheckBoundSession_();
+    if(me.email==='coach-email-link' && s_(me.decisionSig)!==corrLinkSig_(correctionId,me.decision))
+      throw new Error('This review link expired after an account closure. Use Approvals in the portal.');
     if (!hasTab_(CONFIG.TABS.CORRECTIONS))
       throw new Error('There is no ' + CONFIG.TABS.CORRECTIONS + ' tab. Run ensureSchema_().');
     delete __tableCache[CONFIG.TABS.CORRECTIONS];
@@ -1693,7 +1639,8 @@ function teamAdminDecideCorrection_(me, correctionId, decision, note) {
     const field = s_(c.Field);
     const applicant = s_(c.CorrectedBy);
     const proposed = numOrNull_(c.NewValue);
-    const proposedCell = proposed === null ? '' : proposed;
+    const proposedCell = (field === 'BlockedPunts' || field === 'TwoPointConversions') && act === 'APPROVE'
+      ? teamAdminStat_(field, c.NewValue) : (proposed === null ? '' : proposed);
 
     const player = rowsOf_(CONFIG.TABS.PLAYERS).filter(function (p) {
       return s_(p.PlayerID) === playerId;
